@@ -107,7 +107,7 @@ def run_command(cmd, cwd=None):
         raise RunCommandException(cmd, result.returncode)
     else:
         console.print(result.stdout)
-        return 0
+        return result.stdout
 
 
 def run_dbt_command(dbt_project_dir: str, command):
@@ -156,8 +156,53 @@ def generate_piperider_report(branch, project_path, repo):
     }
     if PIPERIDER_API_TOKEN and PIPERIDER_CLOUD_PROJECT:
         options['upload_project'] = PIPERIDER_CLOUD_PROJECT
-    run_piperider_command(dbt_project_path, 'run', options=options)
+
+    console_output = run_piperider_command(dbt_project_path, 'run', options=options)
     console.print(f'PipeRider Report: {os.path.abspath(os.path.join(piperider_output_dir, "index.html"))}')
+
+    if PIPERIDER_API_TOKEN and PIPERIDER_CLOUD_PROJECT:
+        match = re.search(r'Report #.* URL: (\S+)\n', console_output)
+        if match:
+            return match.group(1)
+    else:
+        return os.path.abspath(os.path.join(piperider_output_dir, "index.html"))
+
+
+def show_summary(repo, pr=None, reports: dict = None):
+    from rich.markdown import Markdown
+
+    if pr:
+        # PR summary
+        summary = f'''
+# Dbt Project {repo.full_name} Pull Request #{pr.number} Summary
+- Repo URL: {repo.html_url}
+- PR URL: {pr.html_url}
+- PR Title: {pr.title}
+
+## Branches - {pr.base.ref} <- {pr.head.ref}
+- Compare Report: {reports['compare']}
+
+### Base Branch - {pr.base.ref}
+- Report: {reports['base']}
+
+### Head Branch - {pr.head.ref}
+- Report: {reports['head']}
+
+
+'''
+    else:
+        # Repo summary
+        summary = f'''
+# Dbt Project {repo.full_name} Repository Summary
+- Repo URL: {repo.html_url}
+
+## Default Branch - {repo.default_branch}
+- Report: {reports['base']}
+'''
+    console.print(Markdown(summary))
+    if os.getenv('GITHUB_ACTIONS') == 'true':
+        with open('summary.md', 'w') as f:
+            f.write(summary)
 
 
 def main():
@@ -180,6 +225,7 @@ def main():
     gh = Github(auth=auth)
 
     repo = gh.get_repo(repo)
+    pr = None
     git_repo, project_path = clone_repo(repo)
     base_branch = repo.default_branch
     head_branch = None
@@ -197,23 +243,31 @@ def main():
         console.print(f"State: {pr.state}")
 
     console.rule(f"Process Base Branch: '{base_branch}'")
+    base_report = None
+    head_report = None
+    compare_report = None
     try:
         git_repo.git.checkout(base_branch)
-        generate_piperider_report(base_branch, project_path, repo)
+        base_report = generate_piperider_report(base_branch, project_path, repo)
 
         if head_branch:
             console.rule(f"Process Head Branch: '{head_branch}'")
             git_repo.git.checkout(head_branch)
-            generate_piperider_report(head_branch, project_path, repo)
+            head_report = generate_piperider_report(head_branch, project_path, repo)
 
             console.rule(f"Compare '{head_branch}' vs '{base_branch}'")
             compare_result_path = os.path.join('results', repo.full_name, f'{head_branch}_vs_{base_branch}')
             os.makedirs(compare_result_path, exist_ok=True)
 
             if PIPERIDER_API_TOKEN and PIPERIDER_CLOUD_PROJECT:
-                compare_piperider_run(project_path, os.path.abspath(compare_result_path), PIPERIDER_CLOUD_PROJECT)
+                console_output = compare_piperider_run(project_path, os.path.abspath(compare_result_path),
+                                                       PIPERIDER_CLOUD_PROJECT)
+                match = re.search(r'Report #.* URL: (\S+)\n', console_output)
+                if match:
+                    compare_report = match.group(1)
             else:
                 compare_piperider_run(project_path, os.path.abspath(compare_result_path))
+                compare_report = os.path.abspath(os.path.join(compare_result_path, "index.html"))
     except RunCommandException as e:
         if e.msg:
             console.print(f"[[bold red]Error[/bold red]]: {e.msg}")
@@ -224,6 +278,13 @@ def main():
     except Exception as e:
         console.print(f"[[bold red]Error[/bold red]]: {e}")
         exit(1)
+
+    console.rule(f"Summary")
+    show_summary(repo, pr, {
+        'base': base_report,
+        'head': head_report,
+        'compare': compare_report
+    })
 
 
 if __name__ == '__main__':
