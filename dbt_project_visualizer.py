@@ -14,7 +14,9 @@ from rich.console import Console
 from ruamel import yaml
 
 console = Console()
-GITHUB_API_TOKEN = os.environ.get('GITHUB_API_TOKEN', '')
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+PIPERIDER_API_TOKEN = os.environ.get('PIPERIDER_API_TOKEN')
+PIPERIDER_CLOUD_PROJECT = os.environ.get('PIPERIDER_CLOUD_PROJECT')
 
 
 def print_error(msg):
@@ -129,8 +131,10 @@ def run_piperider_command(dbt_project_dir: str, command, options: dict = None):
     return run_command(cmd)
 
 
-def compare_piperider_run(project_path, result_path):
+def compare_piperider_run(project_path, result_path, upload_project: str = None):
     cmd = ['piperider', 'compare-reports', '--last', '-o', result_path]
+    if upload_project:
+        cmd += ['--upload', '--share', '--project', upload_project]
     return run_command(cmd, cwd=project_path)
 
 
@@ -163,8 +167,8 @@ def main():
             return 1
 
     auth = None
-    if GITHUB_API_TOKEN:
-        auth = Auth.Token(GITHUB_API_TOKEN)
+    if GITHUB_TOKEN:
+        auth = Auth.Token(GITHUB_TOKEN)
 
     gh = Github(auth=auth)
 
@@ -198,7 +202,11 @@ def main():
             console.rule(f"Compare '{head_branch}' vs '{base_branch}'")
             compare_result_path = os.path.join('results', repo.full_name, f'{head_branch}_vs_{base_branch}')
             os.makedirs(compare_result_path, exist_ok=True)
-            compare_piperider_run(project_path, os.path.abspath(compare_result_path))
+
+            if PIPERIDER_API_TOKEN and PIPERIDER_CLOUD_PROJECT:
+                compare_piperider_run(project_path, os.path.abspath(compare_result_path), PIPERIDER_CLOUD_PROJECT)
+            else:
+                compare_piperider_run(project_path, os.path.abspath(compare_result_path))
     except RunCommandException as e:
         if e.msg:
             console.print(f"[[bold red]Error[/bold red]]: {e.msg}")

@@ -1,0 +1,41 @@
+name: DBT Project Visualizer - Manually Triggered
+
+on:
+  workflow_dispatch:
+    branches:
+      - main
+    inputs:
+      url:
+        description: 'URL of the GitHub dbt project or pull request to be visualized'
+        required: true
+        type: string
+        default: ''
+
+jobs:
+  generate-report:
+    name: Generate Piperider Report
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.10
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate Report
+        run: |
+          piperider cloud login --token ${{ secrets.PIPERIDER_API_TOKEN }} --project ${{ env.PIPERIDER_CLOUD_PROJECT }} --no-interaction
+          python dbt_project_visualizer.py ${{ github.event.inputs.url }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PIPERIDER_API_TOKEN: ${{ secrets.PIPERIDER_API_TOKEN }}
+          PIPERIDER_CLOUD_PROJECT: dev-test/dbt-project-visualizer
+          PIPERIDER_API_SERVICE: https://staging.cloud.piperider.io
