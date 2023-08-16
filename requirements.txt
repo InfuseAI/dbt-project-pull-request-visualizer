@@ -6,4 +6,5 @@ gitpython
 ruamel.yaml
 dbt-core~=1.5.2
 dbt-duckdb~=1.5.0
-piperider[duckdb]
+git+https://github.com/InfuseAI/piperider.git@feature/sc-31711/as-a-dbt-user-i-would-like-to-use-piperider#egg=piperider[duckdb]
+

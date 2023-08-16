@@ -1,18 +1,19 @@
 #! /usr/bin/env python3
 import atexit
-import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from typing import List
 
 from git import Repo
 from github import Auth, Github, Repository
 from rich.console import Console
 from ruamel import yaml
 
+console = Console()
 GITHUB_API_TOKEN = os.environ.get('GITHUB_API_TOKEN', '')
 
 
@@ -66,12 +67,11 @@ def find_dbt_project(project_path: str):
 
 def patch_dbt_profiles(dbt_project_dir: str):
     if os.path.exists(os.path.join(dbt_project_dir, 'profiles.yml')):
+        console.print("[[bold yellow]WARNING[/bold yellow]] profiles.yml already exists, skip patching")
         return True
 
     with open(os.path.join(dbt_project_dir, 'dbt_project.yml'), 'r') as steam:
         dbt_project = yaml.load(steam, Loader=yaml.Loader)
-        console = Console()
-        console.print(dbt_project)
         profile_name = dbt_project.get('profile', 'default')
 
         with open(os.path.join(dbt_project_dir, 'profiles.yml'), 'w') as fd:
@@ -86,60 +86,58 @@ def patch_dbt_profiles(dbt_project_dir: str):
                     }
                 }
             }, fd)
+        console.print(f"patched dbt_project.yml with profile: {profile_name}")
+
+
+class RunCommandException(BaseException):
+    def __init__(self, cmd: List[str], return_code: int, msg: str = None):
+        self.cmd: List[str] = cmd
+        self.return_code: int = return_code
+        self.msg = msg
+        super().__init__('Run command failed')
+
+
+def run_command(cmd, cwd=None):
+    console.print(f"[Executing command] '{' '.join(cmd)}'")
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
+    if result.returncode != 0:
+        console.print(f"[[bold red]Error[/bold red]] executing command:\n{result.stdout}")
+        raise RunCommandException(cmd, result.returncode)
+    else:
+        console.print(result.stdout)
+        return 0
 
 
 def run_dbt_command(dbt_project_dir: str, command):
-    console = Console()
     cmd = ['dbt', command, '--project-dir', dbt_project_dir, '--profiles-dir', dbt_project_dir]
-    console.rule(f"Running dbt command: 'dbt {command}'")
-
-    # Execute the command
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    # Check if the command was successful
-    if result.returncode != 0:
-        console.print(f"Error executing dbt command:\n{result.stdout}")
-    else:
-        console.print(result.stdout)
+    try:
+        return run_command(cmd)
+    except RunCommandException as e:
+        if command == 'deps':
+            e.msg = ("Failed to execute 'dbt deps'\n"
+                     "Probably caused by private packages.")
+        if command == 'parse':
+            e.msg = ("Failed to execute 'dbt parse'\n"
+                     "Probably caused by dbt version or no profile be filled in 'dbt_project.yml' file.")
+        raise e
 
 
 def run_piperider_command(dbt_project_dir: str, command, options: dict = None):
-    console = Console()
     cmd = ['piperider', command, '--dbt-project-dir', dbt_project_dir, '--dbt-profiles-dir', dbt_project_dir]
-
     if command == 'run' and options and 'output' in options:
         cmd += ['-o', options['output']]
-    console.rule(f"Running piperider command: 'piperider {command}'")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        console.print(f"Error executing dbt command:\n{result.stdout}")
-    else:
-        console.print(result.stdout)
-
-
-def parse_dbt_manifest(dbt_project_dir: str):
-    with open(os.path.join(dbt_project_dir, 'target', 'manifest.json'), 'r') as steam:
-        manifest = json.load(steam)
-        console = Console()
-        console.print(manifest)
+    return run_command(cmd)
 
 
 def compare_piperider_run(project_path, result_path):
-    console = Console()
     cmd = ['piperider', 'compare-reports', '--last', '-o', result_path]
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=project_path)
-    if result.returncode != 0:
-        console.print(f"Error executing dbt command:\n{result.stdout}")
-    else:
-        console.print(result.stdout)
+    return run_command(cmd, cwd=project_path)
 
 
 def generate_piperider_report(branch, project_path, repo):
-    console = Console()
     dbt_project_path = find_dbt_project(project_path)
     if dbt_project_path is None:
-        console.print("dbt project not found")
-        exit(1)
+        raise Exception("dbt project not found")
     console.print(f"dbt project path: {dbt_project_path}")
     patch_dbt_profiles(dbt_project_path)
     run_dbt_command(dbt_project_path, 'deps')
@@ -152,7 +150,6 @@ def generate_piperider_report(branch, project_path, repo):
 
 
 def main():
-    console = Console()
     argv = sys.argv
     if len(argv) != 2:
         usage()
@@ -189,18 +186,29 @@ def main():
         console.print(f"State: {pr.state}")
 
     console.rule(f"Process Base Branch: '{base_branch}'")
-    git_repo.git.checkout(base_branch)
-    generate_piperider_report(base_branch, project_path, repo)
+    try:
+        git_repo.git.checkout(base_branch)
+        generate_piperider_report(base_branch, project_path, repo)
 
-    if head_branch:
-        console.rule(f"Process Head Branch: '{head_branch}'")
-        git_repo.git.checkout(head_branch)
-        generate_piperider_report(head_branch, project_path, repo)
+        if head_branch:
+            console.rule(f"Process Head Branch: '{head_branch}'")
+            git_repo.git.checkout(head_branch)
+            generate_piperider_report(head_branch, project_path, repo)
 
-        console.rule(f"Compare '{head_branch}' vs '{base_branch}'")
-        compare_result_path = os.path.join('results', repo.full_name, f'{head_branch}_vs_{base_branch}')
-        os.makedirs(compare_result_path, exist_ok=True)
-        compare_piperider_run(project_path, os.path.abspath(compare_result_path))
+            console.rule(f"Compare '{head_branch}' vs '{base_branch}'")
+            compare_result_path = os.path.join('results', repo.full_name, f'{head_branch}_vs_{base_branch}')
+            os.makedirs(compare_result_path, exist_ok=True)
+            compare_piperider_run(project_path, os.path.abspath(compare_result_path))
+    except RunCommandException as e:
+        if e.msg:
+            console.print(f"[[bold red]Error[/bold red]]: {e.msg}")
+        else:
+            console.print(
+                f"[[bold red]Error[/bold red]]: Failed to execute CMD: '{' '.join(e.cmd[:2])}'")
+        exit(e.return_code)
+    except Exception as e:
+        console.print(f"[[bold red]Error[/bold red]]: {e}")
+        exit(1)
 
 
 if __name__ == '__main__':
