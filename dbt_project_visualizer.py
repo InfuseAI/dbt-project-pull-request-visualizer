@@ -134,11 +134,11 @@ def run_piperider_command(dbt_project_dir: str, command, options: dict = None):
     return run_command(cmd)
 
 
-def compare_piperider_run(project_path, result_path, upload_project: str = None):
+def compare_piperider_run(dbt_project_path, result_path, upload_project: str = None):
     cmd = ['piperider', 'compare-reports', '--last', '-o', result_path]
     if upload_project:
         cmd += ['--upload', '--share', '--project', upload_project]
-    return run_command(cmd, cwd=project_path)
+    return run_command(cmd, cwd=dbt_project_path)
 
 
 def generate_piperider_report(branch, project_path, repo):
@@ -259,14 +259,15 @@ def main():
             compare_result_path = os.path.join('results', repo.full_name, f'{head_branch}_vs_{base_branch}')
             os.makedirs(compare_result_path, exist_ok=True)
 
+            dbt_project_path = find_dbt_project(project_path)
             if PIPERIDER_API_TOKEN and PIPERIDER_CLOUD_PROJECT:
-                console_output = compare_piperider_run(project_path, os.path.abspath(compare_result_path),
+                console_output = compare_piperider_run(dbt_project_path, os.path.abspath(compare_result_path),
                                                        PIPERIDER_CLOUD_PROJECT)
                 match = re.search(r'Comparison report URL: (\S+)\n', console_output)
                 if match:
                     compare_report = match.group(1)
             else:
-                compare_piperider_run(project_path, os.path.abspath(compare_result_path))
+                compare_piperider_run(dbt_project_path, os.path.abspath(compare_result_path))
                 compare_report = os.path.abspath(os.path.join(compare_result_path, "index.html"))
     except RunCommandException as e:
         if e.msg:
