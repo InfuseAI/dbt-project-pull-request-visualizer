@@ -262,7 +262,7 @@ def main():
             if PIPERIDER_API_TOKEN and PIPERIDER_CLOUD_PROJECT:
                 console_output = compare_piperider_run(project_path, os.path.abspath(compare_result_path),
                                                        PIPERIDER_CLOUD_PROJECT)
-                match = re.search(r'Report #.* URL: (\S+)\n', console_output)
+                match = re.search(r'Comparison report URL: (\S+)\n', console_output)
                 if match:
                     compare_report = match.group(1)
             else:
