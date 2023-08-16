@@ -126,8 +126,11 @@ def run_dbt_command(dbt_project_dir: str, command):
 
 def run_piperider_command(dbt_project_dir: str, command, options: dict = None):
     cmd = ['piperider', command, '--dbt-project-dir', dbt_project_dir, '--dbt-profiles-dir', dbt_project_dir]
-    if command == 'run' and options and 'output' in options:
-        cmd += ['-o', options['output']]
+    if command == 'run' and options:
+        if options.get('output'):
+            cmd += ['-o', options['output']]
+        if options.get('upload_project'):
+            cmd += ['--upload', '--share', '--project', options['upload_project']]
     return run_command(cmd)
 
 
@@ -148,8 +151,12 @@ def generate_piperider_report(branch, project_path, repo):
     run_dbt_command(dbt_project_path, 'parse')
     piperider_output_dir = os.path.join('results', repo.full_name, branch)
     os.makedirs(piperider_output_dir, exist_ok=True)
-    run_piperider_command(dbt_project_path, 'run',
-                          {'output': piperider_output_dir})
+    options = {
+        'output': piperider_output_dir
+    }
+    if PIPERIDER_API_TOKEN and PIPERIDER_CLOUD_PROJECT:
+        options['upload_project'] = PIPERIDER_CLOUD_PROJECT
+    run_piperider_command(dbt_project_path, 'run', options=options)
     console.print(f'PipeRider Report: {os.path.abspath(os.path.join(piperider_output_dir, "index.html"))}')
 
 
