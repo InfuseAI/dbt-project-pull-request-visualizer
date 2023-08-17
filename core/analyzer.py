@@ -116,6 +116,7 @@ class DbtProjectAnalyzer(object):
         console.rule(f"Summary")
         if base_report and head_report and compare_report:
             # PR summary
+            panel_width = max(len(base_report), len(head_report), len(compare_report)) + 6
             summary = f'''
 # Dbt Project {self.repo.full_name} Pull Request #{self.pull_request.number} Summary
 - Repo URL: {self.repo.html_url}
@@ -131,8 +132,10 @@ class DbtProjectAnalyzer(object):
 ### Head Branch - {self.pull_request.head.ref}
 - Report: {head_report}
 '''
+
         else:
             # Repo summary
+            panel_width = len(base_report) + 6
             summary = f'''
 # Dbt Project {self.repo.full_name} Repository Summary
 - Repo URL: {self.repo.html_url}
@@ -143,11 +146,8 @@ class DbtProjectAnalyzer(object):
 
         from rich.markdown import Markdown
         from rich.panel import Panel
-        half_width = console.width // 2
-        if half_width < 140:
-            half_width = 140
 
-        panel = Panel(Markdown(summary), width=half_width, expand=False)
+        panel = Panel(Markdown(summary), width=panel_width, expand=False)
         console.print(panel)
         if os.getenv('GITHUB_ACTIONS') == 'true':
             with open('summary.md', 'w') as f:
