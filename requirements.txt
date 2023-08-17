@@ -4,7 +4,7 @@ rich>=12.0.0
 PyGithub
 gitpython
 ruamel.yaml
-dbt-core~=1.5.2
+click>=7.1
+dbt-core~=1.5.4
 dbt-duckdb~=1.5.0
-git+https://github.com/InfuseAI/piperider.git@feature/sc-31711/as-a-dbt-user-i-would-like-to-use-piperider#egg=piperider[duckdb]
-
+piperider[duckdb]@git+https://github.com/InfuseAI/piperider.git
