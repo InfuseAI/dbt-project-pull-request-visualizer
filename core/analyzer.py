@@ -3,10 +3,9 @@ import re
 
 from github import Github, Auth
 
-from core.dbt import run_dbt_deps_command, run_dbt_parse_command
+from core.dbt import run_dbt_deps_command, run_dbt_parse_command, find_dbt_project, patch_dbt_profiles
 from core.piperider import piperider_run_command, piperider_compare_reports_command
 from core.utils import clone_github_repo, parse_github_pr_url, parse_github_url, console
-from dbt_project_visualizer import patch_dbt_profiles, find_dbt_project
 
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
 
