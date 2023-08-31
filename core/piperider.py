@@ -2,7 +2,8 @@ from core.utils import run_command
 
 
 def piperider_run_command(dbt_project_dir: str, options: dict = None):
-    cmd = ['piperider', 'run', '--dbt-project-dir', dbt_project_dir, '--dbt-profiles-dir', dbt_project_dir]
+    cmd = ['piperider', 'run', '--skip-datasource', '--dbt-project-dir', dbt_project_dir, '--dbt-profiles-dir',
+           dbt_project_dir]
     extra_env = None
     if options:
         if options.get('output'):
