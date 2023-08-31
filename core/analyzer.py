@@ -1,5 +1,6 @@
 import os
 import re
+import tempfile
 
 from github import Github, Auth
 
@@ -10,8 +11,32 @@ from core.utils import clone_github_repo, parse_github_pr_url, parse_github_url,
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
 
 
+class AnalyzerResult(object):
+    def __init__(self, name: str, path: str, url: str = None):
+        self.name = name
+        self.path = path
+        self.url = url
+
+    @property
+    def report(self):
+        path = self.path if os.path.isabs(self.path) else os.path.abspath(self.path)
+        return self.url or path
+
+
+def _output_result_path(*args):
+    if os.access(os.path.curdir, os.W_OK):
+        return os.path.join('results', *args)
+
+    tempdir = tempfile.mkdtemp()
+    return os.path.join(tempdir, *args)
+
+
 class DbtProjectAnalyzer(object):
-    def __init__(self, url: str, api_token: str = None, project_name: str = None, upload: bool = False):
+    def __init__(self, url: str,
+                 api_token: str = None,
+                 project_name: str = None,
+                 upload: bool = False,
+                 share: bool = False):
         self.url = url
 
         auth = None
@@ -34,8 +59,16 @@ class DbtProjectAnalyzer(object):
 
         # Control
         self.upload = upload
+        self.share = share
         self.project_name = project_name
         self.api_token = api_token
+
+        # Analyze Results
+        self.results: dict[str, AnalyzerResult | None] = {
+            'base': None,
+            'head': None,
+            'compare': None
+        }
 
     def load_github_url(self) -> bool:
         # Check URL format
@@ -63,7 +96,7 @@ class DbtProjectAnalyzer(object):
             self.pull_request = pr
         return True
 
-    def generate_piperider_report(self, branch) -> str:
+    def generate_piperider_report(self, branch) -> (str, str):
         self.git_repo.git.checkout(branch)
         if self.dbt_project_path is None:
             raise Exception("Failed to find dbt_project.yml")
@@ -72,7 +105,7 @@ class DbtProjectAnalyzer(object):
         run_dbt_deps_command(self.dbt_project_path)
         run_dbt_parse_command(self.dbt_project_path)
 
-        piperider_output_path = os.path.join('results', self.repo.full_name, branch)
+        piperider_output_path = _output_result_path(self.repo.full_name, branch)
         os.makedirs(piperider_output_path, exist_ok=True)
         options = {
             'output': piperider_output_path
@@ -81,37 +114,50 @@ class DbtProjectAnalyzer(object):
         if self.upload:
             options['api_token'] = self.api_token
             options['upload_project'] = self.project_name
+            if self.share:
+                options['share'] = True
         console_output = piperider_run_command(self.dbt_project_path, options=options)
+
+        report_url = None
         if self.upload:
             match = re.search(r'Report #.* URL: (\S+)\n', console_output)
             if match:
-                return match.group(1)
-        else:
-            report_path = os.path.abspath(os.path.join(piperider_output_path, 'index.html'))
-            console.print(f'PipeRider Report: {report_path}')
+                report_url = match.group(1)
 
-            return report_path
+        report_path = os.path.join(piperider_output_path, 'index.html')
+        console.print(f'PipeRider Report: {report_path}')
 
-    def compare_piperider_reports(self):
-        compare_output_path = os.path.join('results', self.repo.full_name, f'{self.head_branch}_vs_{self.base_branch}')
+        return report_path, report_url
+
+    def compare_piperider_reports(self) -> (str, str):
+        compare_output_path = _output_result_path(self.repo.full_name, f'{self.head_branch}_vs_{self.base_branch}')
         os.makedirs(compare_output_path, exist_ok=True)
 
         # Compare the latest 2 reports
         options = {}
+
+        # Pre-compare
         if self.upload:
             options['api_token'] = self.api_token
             options['upload_project'] = self.project_name
+
         console_output = piperider_compare_reports_command(self.dbt_project_path, compare_output_path,
                                                            options=options)
+        # Post-compare
+        report_url = None
         if self.upload:
             match = re.search(r'Comparison report URL: (\S+)\n', console_output)
             if match:
-                return match.group(1)
+                report_url = match.group(1)
 
-        report_path = os.path.abspath(os.path.join(compare_output_path, 'index.html'))
-        return report_path
+        report_path = os.path.join(compare_output_path, 'index.html')
+        return report_path, report_url
 
-    def summary(self, base_report=None, head_report=None, compare_report=None):
+    def summary(self):
+        base_report = self.results['base'].report if self.results['base'] else None
+        head_report = self.results['head'].report if self.results['head'] else None
+        compare_report = self.results['compare'].report if self.results['compare'] else None
+
         console.rule(f"Summary")
         if base_report and head_report and compare_report:
             # PR summary
@@ -153,23 +199,23 @@ class DbtProjectAnalyzer(object):
                 f.write(summary)
 
     def analyze(self):
-        base_report = None
-        head_report = None
-        compare_report = None
-
         if self.load_github_url() is False:
             raise Exception(f"Failed to load github url: {self.url}")
 
         if self.base_branch:
             console.rule(f"Process Base Branch: '{self.base_branch}'")
-            base_report = self.generate_piperider_report(self.base_branch)
+            path, url = self.generate_piperider_report(self.base_branch)
+            self.results['base'] = AnalyzerResult(self.base_branch, path, url)
 
         if self.head_branch:
             console.rule(f"Process Head Branch: '{self.head_branch}'")
-            head_report = self.generate_piperider_report(self.head_branch)
+            path, url = self.generate_piperider_report(self.head_branch)
+            self.results['head'] = AnalyzerResult(self.head_branch, path, url)
 
         if self.base_branch and self.head_branch:
             console.rule(f"Compare '{self.head_branch}' vs '{self.base_branch}'")
-            compare_report = self.compare_piperider_reports()
+            path, url = self.compare_piperider_reports()
+            self.results['compare'] = AnalyzerResult(f'{self.head_branch}_vs_{self.base_branch}', path, url)
 
-        return self.summary(base_report, head_report, compare_report)
+    def ping(self):
+        return "pong 🏓 🏓 🏓 \n Github URL: " + self.url

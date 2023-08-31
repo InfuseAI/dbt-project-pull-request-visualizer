@@ -1,0 +1,155 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  dbt-project-visualizer
+
+  SAM Template for dbt-project-visualizer
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Tags:
+      "app": "dbt-project-visualizer"
+
+Resources:
+  # SQS
+  DBTGitHubAnalyzerSQSQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: dbt-github-analyzer-task-queue
+      VisibilityTimeout: 300
+      Tags:
+        - Key: "app"
+          Value: "dbt-project-visualizer"
+
+  # Dynamo DB
+  DBTGitHubAnalyzerDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: dbt-github-analyzer-status-table
+      AttributeDefinitions:
+        - AttributeName: task_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: task_id
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      Tags:
+        - Key: "app"
+          Value: "dbt-project-visualizer"
+
+  # Lambda Functions
+  AnalysisTaskReceiverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: dbt-github-analyzer-receiver
+      Timeout: 300
+      Architectures:
+        - arm64
+      PackageType: Image
+      ImageConfig:
+        Command: [ "lambda.app.receiver" ]
+      Environment:
+        Variables:
+          "DEBUG": "false"
+          "LOCALHOST": "localhost"
+      Events:
+        AnalysisTaskReceiverApiEvent:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /analyze
+            Method: post
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        #        - SQSSendMessagePolicy:
+        #            QueueName: !Ref DBTGitHubAnalyzerSQSQueue
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DBTGitHubAnalyzerDynamoDBTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sqs:GetQueueUrl
+                - sqs:sendMessage
+              Resource: !GetAtt DBTGitHubAnalyzerSQSQueue.Arn
+    Metadata:
+      Dockerfile: ./Dockerfile
+      DockerContext: .
+
+  AnalysisTaskStatusCheckerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: dbt-github-analyzer-status-checker
+      Timeout: 300
+      Architectures:
+        - arm64
+      PackageType: Image
+      ImageConfig:
+        Command: [ "lambda.app.status_checker" ]
+      Environment:
+        Variables:
+          "DEBUG": "false"
+          "LOCALHOST": "localhost"
+      Events:
+        AnalysisTaskStatusCheckerEvent:
+          Type: Api
+          Properties:
+            Method: get
+            Path: /analyze/{task_id}
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DBTGitHubAnalyzerDynamoDBTable
+    Metadata:
+      Dockerfile: ./Dockerfile
+      DockerContext: .
+
+  AnalysisTaskProcessorFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      FunctionName: dbt-github-analyzer-processor
+      Timeout: 300
+      Architectures:
+        - arm64
+      MemorySize: 512
+      PackageType: Image
+      ImageConfig:
+        Command: [ "lambda.app.processor" ]
+      Environment:
+        Variables:
+          "DEBUG": "false"
+          "LOCALHOST": "localhost"
+      Events:
+        AnalysisTaskProcessorSQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt DBTGitHubAnalyzerSQSQueue.Arn
+            BatchSize: 1
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DBTGitHubAnalyzerDynamoDBTable
+        - SQSPollerPolicy:
+            QueueName: !Ref DBTGitHubAnalyzerSQSQueue
+    Metadata:
+      Dockerfile: ./Dockerfile
+      DockerContext: .
+
+
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  #  AnalyzeGitHubRepoApi:
+  #    Description: "API Gateway endpoint URL for Prod stage for AnalyzeGitHubRepo function"
+  #    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+  #  AnalyzeGitHubRepoFunction:
+  #    Description: "AnalyzeGitHubRepo Lambda Function ARN"
+  #    Value: !GetAtt AnalyzeGitHubRepoFunction.Arn
+  #  HelloWorldFunctionIamRole:
+  #    Description: "Implicit IAM Role created for AnalyzeGitHubRepo function"
+  #    Value: !GetAtt AnalyzeGitHubRepoFunctionRole.Arn
+  DBTProjectVisualizerApi:
+    Description: "API Gateway endpoint URL for Prod stage for dbt-project-visualizer"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/analyze/"
