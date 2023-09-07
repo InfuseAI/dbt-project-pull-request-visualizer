@@ -1,11 +1,12 @@
 import os
 import re
 import tempfile
+from enum import Enum
 
-from github import Github, Auth
+from github import Github, Auth, Repository, PullRequest
 
-from core.dbt import run_dbt_deps_command, run_dbt_parse_command, find_dbt_project, patch_dbt_profiles
-from core.piperider import piperider_run_command, piperider_compare_reports_command
+from core.dbt import dbt_deps, dbt_parse, find_dbt_project, patch_dbt_profiles
+from core.piperider import piperider_run, piperider_compare_reports
 from core.utils import clone_github_repo, parse_github_pr_url, parse_github_url, console
 
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
@@ -31,6 +32,12 @@ def _output_result_path(*args):
     return os.path.join(tempdir, *args)
 
 
+class AnalysisType(Enum):
+    UNKNOWN = ''
+    REPOSITORY = 'repository'
+    PULL_REQUEST = 'pull-request'
+
+
 class DbtProjectAnalyzer(object):
     def __init__(self, url: str,
                  api_token: str = None,
@@ -45,13 +52,16 @@ class DbtProjectAnalyzer(object):
         self.github = Github(auth=auth)
 
         # Github
-        self.repo = None
+        self.repository = None
         self.pull_request = None
+        self.analyze_type: AnalysisType = AnalysisType.UNKNOWN
 
         # Git
         self.git_repo = None
         self.base_branch = None
+        self.base_sha = None
         self.head_branch = None
+        self.head_sha = None
         self.project_path = None
 
         # Dbt
@@ -64,51 +74,68 @@ class DbtProjectAnalyzer(object):
         self.api_token = api_token
 
         # Analyze Results
-        self.results: dict[str, AnalyzerResult | None] = {
-            'base': None,
-            'head': None,
-            'compare': None
-        }
+        self.result: AnalyzerResult | None = None
+        self.base_result: AnalyzerResult | None = None  # Used for PR
+        self.head_result: AnalyzerResult | None = None  # Used for PR
 
-    def load_github_url(self) -> bool:
-        # Check URL format
-        ret, repo_name, pr_id = parse_github_pr_url(self.url)
+    def verify_github_url(self, url) -> (AnalysisType, Repository, PullRequest):
+        ret, repo_name, pr_id = parse_github_pr_url(url)
         if ret is False:
-            ret, repo_name = parse_github_url(self.url)
+            ret, repo_name = parse_github_url(url)
             if ret is False:
-                return False
+                # Invalid GitHub URL
+                raise Exception(f"Invalid GitHub URL: {url}")
+            else:
+                analysis_type = AnalysisType.REPOSITORY
+        else:
+            analysis_type = AnalysisType.PULL_REQUEST
 
-        repo = self.github.get_repo(repo_name)
-        if repo is None:
-            return False
-
-        self.git_repo, self.project_path = clone_github_repo(repo)
-        self.base_branch = repo.default_branch
-        self.repo = repo
-        self.dbt_project_path = find_dbt_project(self.project_path)
+        # Fetch GitHub repository
+        repository = self.github.get_repo(repo_name)
+        if repository is None:
+            # Unable access GitHub repository
+            raise Exception(f"Unable access GitHub repository: {repo_name}")
 
         if pr_id:
-            pr = repo.get_pull(pr_id)
-            if pr is None:
-                return False
-            self.base_branch = pr.base.ref
-            self.head_branch = pr.head.ref
-            self.pull_request = pr
+            pull_request = repository.get_pull(pr_id)
+            if pull_request is None:
+                # Unable access GitHub pull request
+                raise Exception(f"Unable access GitHub pull request: {pr_id}")
+        else:
+            pull_request = None
+
+        return analysis_type, repository, pull_request
+
+    def load_github_url(self) -> bool:
+        self.analyze_type, self.repository, self.pull_request = self.verify_github_url(self.url)
+
+        # Clone git repo
+        self.git_repo, self.project_path = clone_github_repo(self.repository)
+        self.dbt_project_path = find_dbt_project(self.project_path)
+
+        if self.analyze_type == AnalysisType.PULL_REQUEST:
+            self.base_branch = self.pull_request.base.ref
+            self.base_sha = self.pull_request.base.sha
+            self.head_branch = self.pull_request.head.ref
+            self.head_sha = self.pull_request.head.sha
+        else:
+            self.base_branch = self.repository.default_branch
+
         return True
 
-    def generate_piperider_report(self, branch) -> (str, str):
-        self.git_repo.git.checkout(branch)
+    def generate_piperider_report(self, branch_or_commit) -> (str, str):
+        self.git_repo.git.checkout(branch_or_commit)
         if self.dbt_project_path is None:
             raise Exception("Failed to find dbt_project.yml")
 
         patch_dbt_profiles(self.dbt_project_path)
-        run_dbt_deps_command(self.dbt_project_path)
-        run_dbt_parse_command(self.dbt_project_path)
+        dbt_deps(self.dbt_project_path)
+        dbt_parse(self.dbt_project_path)
 
-        piperider_output_path = _output_result_path(self.repo.full_name, branch)
+        piperider_output_path = _output_result_path(self.repository.full_name, branch_or_commit)
         os.makedirs(piperider_output_path, exist_ok=True)
         options = {
-            'output': piperider_output_path
+            'output': os.path.abspath(piperider_output_path)
         }
 
         if self.upload:
@@ -116,7 +143,7 @@ class DbtProjectAnalyzer(object):
             options['upload_project'] = self.project_name
             if self.share:
                 options['share'] = True
-        console_output = piperider_run_command(self.dbt_project_path, options=options)
+        console_output = piperider_run(self.dbt_project_path, options=options)
 
         report_url = None
         if self.upload:
@@ -130,7 +157,8 @@ class DbtProjectAnalyzer(object):
         return report_path, report_url
 
     def compare_piperider_reports(self) -> (str, str):
-        compare_output_path = _output_result_path(self.repo.full_name, f'{self.head_branch}_vs_{self.base_branch}')
+        compare_output_path = _output_result_path(self.repository.full_name,
+                                                  f'{self.head_branch}_vs_{self.base_branch}')
         os.makedirs(compare_output_path, exist_ok=True)
 
         # Compare the latest 2 reports
@@ -141,8 +169,8 @@ class DbtProjectAnalyzer(object):
             options['api_token'] = self.api_token
             options['upload_project'] = self.project_name
 
-        console_output = piperider_compare_reports_command(self.dbt_project_path, compare_output_path,
-                                                           options=options)
+        console_output = piperider_compare_reports(self.dbt_project_path, os.path.abspath(compare_output_path),
+                                                   options=options)
         # Post-compare
         report_url = None
         if self.upload:
@@ -154,40 +182,12 @@ class DbtProjectAnalyzer(object):
         return report_path, report_url
 
     def summary(self):
-        base_report = self.results['base'].report if self.results['base'] else None
-        head_report = self.results['head'].report if self.results['head'] else None
-        compare_report = self.results['compare'].report if self.results['compare'] else None
-
-        console.rule(f"Summary")
-        if base_report and head_report and compare_report:
-            # PR summary
-            panel_width = max(len(base_report), len(head_report), len(compare_report)) + 6
-            summary = f'''
-# Dbt Project {self.repo.full_name} Pull Request #{self.pull_request.number} Summary
-- Repo URL: {self.repo.html_url}
-- PR URL: {self.pull_request.html_url}
-- PR Title: {self.pull_request.title}
-
-## Branches - {self.pull_request.base.ref} <- {self.pull_request.head.ref}
-- Compare Report: {compare_report}
-
-### Base Branch - {self.pull_request.base.ref}
-- Report: {base_report}
-
-### Head Branch - {self.pull_request.head.ref}
-- Report: {head_report}
-'''
-
+        if self.analyze_type == AnalysisType.PULL_REQUEST:
+            summary, panel_width = self.summary_pull_request()
+        elif self.analyze_type == AnalysisType.REPOSITORY:
+            summary, panel_width = self.summary_repository()
         else:
-            # Repo summary
-            panel_width = len(base_report) + 6
-            summary = f'''
-# Dbt Project {self.repo.full_name} Repository Summary
-- Repo URL: {self.repo.html_url}
-
-## Default Branch - {self.repo.default_branch}
-- Report: {base_report}
-'''
+            raise Exception(f"Unknown analyze type: {self.analyze_type}")
 
         from rich.markdown import Markdown
         from rich.panel import Panel
@@ -198,24 +198,76 @@ class DbtProjectAnalyzer(object):
             with open('summary.md', 'w') as f:
                 f.write(summary)
 
-    def analyze(self):
+    def summary_repository(self):
+        # Repo summary
+        panel_width = len(self.result.report) + 8
+        content = f'''
+# Dbt Project '{self.repository.full_name}' Repository Summary
+- Repo URL: {self.repository.html_url}
+
+## Default Branch - {self.repository.default_branch}
+- Report: {self.result.report}
+'''
+
+        return content, panel_width
+
+    def summary_pull_request(self):
+        # PR summary
+        base_report = self.base_result.report
+        head_report = self.head_result.report
+        compare_report = self.result.report
+        panel_width = max(len(base_report), len(head_report), len(compare_report)) + 8
+        content = f'''
+# Dbt Project '{self.repository.full_name}' Pull Request #{self.pull_request.number} Summary
+- Repo URL: {self.repository.html_url}
+- PR URL: {self.pull_request.html_url}
+- PR Title: {self.pull_request.title}
+
+## Pull Request - {self.pull_request.base.ref} <- {self.pull_request.head.ref} #{self.pull_request.number}
+- Compare Report: {self.result.report}
+
+### Base Branch - {self.pull_request.base.ref} {self.pull_request.base.sha[0:7]}
+- Report: {base_report}
+
+### Head Branch - {self.pull_request.head.ref} {self.pull_request.head.sha[0:7]}
+- Report: {head_report}
+'''
+        return content, panel_width
+
+    def exec(self):
         if self.load_github_url() is False:
             raise Exception(f"Failed to load github url: {self.url}")
 
-        if self.base_branch:
-            console.rule(f"Process Base Branch: '{self.base_branch}'")
-            path, url = self.generate_piperider_report(self.base_branch)
-            self.results['base'] = AnalyzerResult(self.base_branch, path, url)
+        if self.analyze_type == AnalysisType.PULL_REQUEST:
+            return self.analyze_pull_request()
+        elif self.analyze_type == AnalysisType.REPOSITORY:
+            return self.analyze_repository()
+        else:
+            raise Exception(f"Unknown analyze type: {self.analyze_type}")
 
-        if self.head_branch:
-            console.rule(f"Process Head Branch: '{self.head_branch}'")
-            path, url = self.generate_piperider_report(self.head_branch)
-            self.results['head'] = AnalyzerResult(self.head_branch, path, url)
+    def analyze_repository(self):
+        branch = self.repository.default_branch
+        console.rule(f"Process Default Branch: '{branch}'")
+        report_path, report_url = self.generate_piperider_report(branch)
+        self.result = AnalyzerResult(branch, report_path, report_url)
 
-        if self.base_branch and self.head_branch:
-            console.rule(f"Compare '{self.head_branch}' vs '{self.base_branch}'")
-            path, url = self.compare_piperider_reports()
-            self.results['compare'] = AnalyzerResult(f'{self.head_branch}_vs_{self.base_branch}', path, url)
+    def analyze_pull_request(self):
+        base_branch = self.pull_request.base.ref
+        base_sha = self.pull_request.base.sha
+        head_branch = self.pull_request.head.ref
+        head_sha = self.pull_request.head.sha
+
+        console.rule(f"Process Base Branch: '{base_branch}' {base_sha[0:7]}")
+        report_path, report_url = self.generate_piperider_report(base_sha)
+        self.base_result = AnalyzerResult(base_branch, report_path, report_url)
+
+        console.rule(f"Process Head Branch: '{head_branch}' {head_sha[0:7]}")
+        report_path, report_url = self.generate_piperider_report(head_branch)
+        self.head_result = AnalyzerResult(head_branch, report_path, report_url)
+
+        console.rule(f"Compare '{base_branch}'...'{head_branch}'")
+        report_path, report_url = self.compare_piperider_reports()
+        self.result = AnalyzerResult(f'{head_branch}_vs_{base_branch}', report_path, report_url)
 
     def ping(self):
         return "pong 🏓 🏓 🏓 \n Github URL: " + self.url

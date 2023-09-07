@@ -28,10 +28,10 @@ def cli(ctx: click.Context, github_url: str, **kwargs):
                                       share=True,
                                       project_name=upload_project,
                                       api_token=upload_token)
-        analyzer.analyze()
+        analyzer.exec()
         analyzer.summary()
     except RunCommandException as e:
-        click.echo(f'Failed to analyze the project: {e.msg}')
+        click.echo(f'Failed to exec the project: {e.msg}')
         exit(e.return_code)
 
 

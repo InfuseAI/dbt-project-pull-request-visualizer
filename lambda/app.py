@@ -71,23 +71,22 @@ def analyze(payload):
     # TODO: handle exception
     reason = ''
     try:
-        analyzer.analyze()
+        analyzer.exec()
         status = 'completed'
     except BaseException as e:
         print(f'Error: {str(e)}')
         reason = str(e)
         status = 'failed'
 
-    if analyzer.results['compare']:
-        report = analyzer.results['compare'].report
-    elif analyzer.results['base']:
-        report = analyzer.results['base'].report
+    if analyzer.result:
+        report_url = analyzer.result.report
     else:
-        report = None
+        report_url = None
         status = 'failed'
+        reason = 'Failed to generate report'
 
     # TODO: return the report URL
-    return status, report, reason
+    return status, report_url, reason
 
 
 def processor(event, context):
@@ -95,14 +94,14 @@ def processor(event, context):
     db = DynamoDB.factory(DYNAMODB_TABLE_NAME)
 
     for record in event.get('Records', []):
+        task_id = record.get('messageId')
         try:
-            task_id = record.get('messageId')
-            body = json.loads(record.get('body'))
             db.update_item(
                 key={'task_id': task_id},
                 update_expression='SET task_status = :status',
                 expression_attribute_values={':status': 'processing'},
             )
+            body = json.loads(record.get('body'))
             status, report, reason = analyze(body)
             # TODO: update task status to DynamoDB with report URL
             # TODO: save failed reason if status is failed
@@ -114,6 +113,11 @@ def processor(event, context):
             pass
         except Exception as e:
             print(f"Error processing record {record.get('messageId')}: {str(e)}")
+            db.update_item(
+                key={'task_id': task_id},
+                update_expression='SET task_status = :status, reason = :reason',
+                expression_attribute_values={':status': 'failed', ':reason': str(e)},
+            )
             continue
         finally:
             pass

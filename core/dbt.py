@@ -43,7 +43,7 @@ def patch_dbt_profiles(dbt_project_dir: str):
         console.print(f"patched dbt_project.yml with profile: {profile_name}")
 
 
-def run_dbt_deps_command(dbt_project_path):
+def dbt_deps(dbt_project_path):
     cmd = ['dbt', 'deps', '--project-dir', dbt_project_path, '--profiles-dir', dbt_project_path]
     try:
         return run_command(cmd)
@@ -53,7 +53,7 @@ def run_dbt_deps_command(dbt_project_path):
         raise e
 
 
-def run_dbt_parse_command(dbt_project_path):
+def dbt_parse(dbt_project_path):
     cmd = ['dbt', 'parse', '--project-dir', dbt_project_path, '--profiles-dir', dbt_project_path]
     try:
         return run_command(cmd)

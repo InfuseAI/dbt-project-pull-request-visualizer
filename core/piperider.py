@@ -3,7 +3,7 @@ import os
 from core.utils import run_command
 
 
-def piperider_run_command(dbt_project_dir: str, options: dict = None):
+def piperider_run(dbt_project_dir: str, options: dict = None):
     cmd = ['piperider', 'run', '--skip-datasource', '--dbt-project-dir', dbt_project_dir,
            '--dbt-profiles-dir',
            dbt_project_dir]
@@ -22,7 +22,7 @@ def piperider_run_command(dbt_project_dir: str, options: dict = None):
     return run_command(cmd, env=extra_env)
 
 
-def piperider_compare_reports_command(dbt_project_path, result_path, options: dict = None):
+def piperider_compare_reports(dbt_project_path, result_path, options: dict = None):
     cmd = ['piperider', 'compare-reports', '--last', '-o', result_path]
     extra_env = None
     if options:
