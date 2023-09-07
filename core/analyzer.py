@@ -258,8 +258,14 @@ class DbtProjectAnalyzer(object):
         head_sha = self.pull_request.head.sha
 
         console.rule(f"Process Base Branch: '{base_branch}' {base_sha[0:7]}")
+        # Set environment variables for unknown branch
+        os.environ['PIPERIDER_GIT_BRANCH'] = base_branch
+        os.environ['PIPERIDER_GIT_SHA'] = base_sha
         report_path, report_url = self.generate_piperider_report(base_sha)
         self.base_result = AnalyzerResult(base_branch, report_path, report_url)
+        # Cleanup environment variables
+        del os.environ['PIPERIDER_GIT_BRANCH']
+        del os.environ['PIPERIDER_GIT_SHA']
 
         console.rule(f"Process Head Branch: '{head_branch}' {head_sha[0:7]}")
         report_path, report_url = self.generate_piperider_report(head_branch)

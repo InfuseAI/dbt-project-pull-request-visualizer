@@ -112,7 +112,7 @@ Resources:
       Timeout: 300
       Architectures:
         - arm64
-      MemorySize: 512
+      MemorySize: 1024
       PackageType: Image
       ImageConfig:
         Command: [ "lambda.app.processor" ]

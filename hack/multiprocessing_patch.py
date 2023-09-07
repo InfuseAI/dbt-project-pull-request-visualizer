@@ -21,6 +21,17 @@ class RLock(Lock):
     pass
 
 
+class Semaphore(Lock):
+    def get_value(self):
+        pass
+
+
+class BoundedSemaphore(Semaphore):
+    pass
+
+
 # Ensure the original Lock isn't imported by adding:
 Lock = Lock
 RLock = RLock
+Semaphore = Semaphore
+BoundedSemaphore = BoundedSemaphore
