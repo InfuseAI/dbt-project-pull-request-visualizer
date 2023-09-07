@@ -53,11 +53,13 @@ def run_command(cmd, cwd=None, env=None):
     process = None
     outs = ''
     try:
-        env = os.environ.copy().update(env) if env else os.environ.copy()
+        env_copy = os.environ.copy()
+        if env:
+            env_copy.update(env)
         process = subprocess.Popen(cmd,
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE,
-                                   env=env,
+                                   env=env_copy,
                                    text=True,
                                    cwd=cwd)
         for line in iter(process.stdout.readline, ""):

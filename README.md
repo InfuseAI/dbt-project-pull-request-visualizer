@@ -1,24 +1,44 @@
-# DBT Project Pull-Request Visualizer
-A tool to visualize the GitHub Pull Request of a dbt project
+# DBT Project Visualizer
 
-## How it works
+DBT Project Visualizer is designed to make it easy for data teams to visualize their DBT projects.
+With this tool, you can understand how different models are interconnected and gain insights into the overall
+architecture of your data transformation workflows.
 
-### Input
-- GitHub Pull Request URL
-  - PR ID
-  - GitHub Repository Name
+## Getting Started
 
-### Output
-- A shareable PipeRider report URL
+### Prerequisites
 
-### Work Flow
-- Clone the repository 
-- Checkout to the target branch
-- Install the Python packages if we can find `requirements.txt` in the repository
-- Generate a fake `profiles.yml` file if we can't find one in the repository
-- Run `dbt deps` to install the dependencies
-- Run `dbt parse` to parse the project and generate the manifest file
-- Checkout to the base branch
-- Run `dbt parse` to parse the project and generate the manifest file
-- Compare the two manifest files by PipeRider and generate a share report
+Ensure you have the following installed:
 
+- Python 3.8+
+- AWS CLI
+- Docker (required for local development)
+
+### Setup
+
+1. Clone the repository
+2. Setup virtual environment
+    ```shell
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
+
+3. Install the Python packages
+    ```shell
+    pip install -r requirements.txt
+    ```
+
+## Local Development
+
+To start the local development environment, simply run:
+
+```shell
+make start
+```
+
+This will launch the local environment, allowing you to run and test your Lambda functions as if they were deployed to
+AWS.
+
+## Deployment
+
+TBD...

@@ -1,0 +1,14 @@
+{
+  "AnalysisTaskReceiverFunction": {
+    "DEBUG": "true",
+    "LOCALHOST": "host.docker.internal"
+  },
+  "AnalysisTaskStatusCheckerFunction": {
+    "DEBUG": "true",
+    "LOCALHOST": "host.docker.internal"
+  },
+  "AnalysisTaskProcessorFunction": {
+    "DEBUG": "true",
+    "LOCALHOST": "host.docker.internal"
+  }
+}

@@ -25,9 +25,11 @@ def cli(ctx: click.Context, github_url: str, **kwargs):
     try:
         analyzer = DbtProjectAnalyzer(github_url,
                                       upload=upload,
+                                      share=True,
                                       project_name=upload_project,
                                       api_token=upload_token)
         analyzer.analyze()
+        analyzer.summary()
     except RunCommandException as e:
         click.echo(f'Failed to analyze the project: {e.msg}')
         exit(e.return_code)
