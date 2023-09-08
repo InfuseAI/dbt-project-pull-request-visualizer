@@ -222,6 +222,7 @@ class DbtProjectAnalyzer(object):
 - Repo URL: {self.repository.html_url}
 - PR URL: {self.pull_request.html_url}
 - PR Title: {self.pull_request.title}
+- PR Status: {self.pull_request.state}
 
 ## Pull Request - {self.pull_request.base.ref} <- {self.pull_request.head.ref} #{self.pull_request.number}
 - Compare Report: {self.result.report}
@@ -255,7 +256,8 @@ class DbtProjectAnalyzer(object):
         base_branch = self.pull_request.base.ref
         base_sha = self.pull_request.base.sha
         head_branch = self.pull_request.head.ref
-        head_sha = self.pull_request.head.sha
+        head_sha = self.pull_request.head.sha if self.pull_request.merged is False \
+            else self.pull_request.merge_commit_sha
 
         console.rule(f"Process Base Branch: '{base_branch}' {base_sha[0:7]}")
         # Set environment variables for unknown branch
@@ -267,9 +269,13 @@ class DbtProjectAnalyzer(object):
         del os.environ['PIPERIDER_GIT_BRANCH']
         del os.environ['PIPERIDER_GIT_SHA']
 
+        os.environ['PIPERIDER_GIT_BRANCH'] = head_branch
+        os.environ['PIPERIDER_GIT_SHA'] = head_sha
         console.rule(f"Process Head Branch: '{head_branch}' {head_sha[0:7]}")
-        report_path, report_url = self.generate_piperider_report(head_branch)
+        report_path, report_url = self.generate_piperider_report(head_sha)
         self.head_result = AnalyzerResult(head_branch, report_path, report_url)
+        del os.environ['PIPERIDER_GIT_BRANCH']
+        del os.environ['PIPERIDER_GIT_SHA']
 
         console.rule(f"Compare '{base_branch}'...'{head_branch}'")
         report_path, report_url = self.compare_piperider_reports()
