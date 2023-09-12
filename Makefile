@@ -3,15 +3,15 @@
 build:
 	sam build
 
-start: local-sqs local-dynamodb start-api
+start: start-api local-sqs-runner
 
 stop:
 	@echo "[Stop local stack]"
 	@docker stop dynamodb-local
 	@docker stop sqs-local
-	@docker stop sqs-runner
+	@docker stop sqs-runner || true
 
-start-api: build local-sqs-runner
+start-api: local-sqs local-dynamodb build
 	@echo "[Start api]"
 	bash -c "trap '$(MAKE) stop' EXIT; sam local start-api --env-vars lambda/dev_env.json"
 
