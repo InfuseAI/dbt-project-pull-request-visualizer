@@ -2,7 +2,8 @@ import json
 import os
 from datetime import datetime
 
-from core.analyzer import DbtProjectAnalyzer
+from core.analyzer import DbtProjectAnalyzer, AnalyzerEventHandler
+from core.utils import parse_github_url
 from .aws.api_gateway import parse_event_body
 from .aws.dynamodb import DynamoDB
 from .aws.sqs import SQS
@@ -13,12 +14,16 @@ SQS_QUEUE_NAME = 'dbt-github-analyzer-task-queue'
 
 # Lambda Handler Functions
 def receiver(event, context):
-    body = parse_event_body(event)
-    if body.get('github_url') is None:
+    try:
+        body = parse_event_body(event)
+        if body.get('github_url') is None:
+            raise Exception('github_url is required')
+        analysis_type, pr_id, repo_name = parse_github_url(body.get('github_url'))
+    except Exception as e:
         return {
             "statusCode": 400,
             "body": json.dumps({
-                "message": "github_url is required",
+                "message": str(e),
             }),
         }
 
@@ -30,6 +35,8 @@ def receiver(event, context):
     db.put_item({
         'task_id': task_id,
         'task_status': 'pending',
+        'analysis_type': analysis_type.value,
+        'repo_name': repo_name,
         'created_at': datetime.utcnow().isoformat()
     })
 
@@ -42,7 +49,43 @@ def receiver(event, context):
     }
 
 
-def analyze(payload):
+class TaskEventHandler(AnalyzerEventHandler):
+    def __init__(self, db, task_id: str):
+        super().__init__()
+        self.db = db
+        self.task_id = task_id
+        self.status = 'running'
+
+    def handle_run_start(self):
+        self.progress = 0
+        self.db.update_item(
+            key={'task_id': self.task_id},
+            update_expression='SET task_status = :status, progress = :progress',
+            expression_attribute_values={':progress': f'{self.progress}% - Start', ':status': self.status},
+        )
+
+    def handle_run_end(self):
+        self.progress = 100
+        self.db.update_item(
+            key={'task_id': self.task_id},
+            update_expression='SET task_status = :status, progress = :progress',
+            expression_attribute_values={':progress': f'{self.progress}% - Completed', ':status': self.status},
+        )
+
+    def handle_run_error(self, error):
+        pass
+
+    def handle_run_progress(self, msg, progress: int = None):
+        if progress is not None:
+            self.progress = progress
+        self.db.update_item(
+            key={'task_id': self.task_id},
+            update_expression='SET task_status = :status, progress = :progress',
+            expression_attribute_values={':progress': f'{self.progress}% - {msg}', ':status': self.status},
+        )
+
+
+def analyze(payload, event_handler: AnalyzerEventHandler = None):
     github_url = payload.get('github_url')
     if github_url is None:
         raise Exception('github_url is required')
@@ -68,6 +111,9 @@ def analyze(payload):
     upload: bool = True if piperider_token and piperider_project else False
 
     analyzer = DbtProjectAnalyzer(github_url, api_token=piperider_token, project_name=piperider_project, upload=upload)
+    if event_handler:
+        analyzer.set_event_handler(event_handler)
+
     # TODO: handle exception
     reason = ''
     try:
@@ -95,20 +141,21 @@ def processor(event, context):
 
     for record in event.get('Records', []):
         task_id = record.get('messageId')
+        task_event_handler = TaskEventHandler(db, task_id)
         try:
-            db.update_item(
-                key={'task_id': task_id},
-                update_expression='SET task_status = :status',
-                expression_attribute_values={':status': 'processing'},
-            )
             body = json.loads(record.get('body'))
-            status, report, reason = analyze(body)
+            status, report, reason = analyze(body, task_event_handler)
             # TODO: update task status to DynamoDB with report URL
             # TODO: save failed reason if status is failed
             db.update_item(
                 key={'task_id': task_id},
-                update_expression='SET task_status = :status, report_url = :report, reason = :reason',
-                expression_attribute_values={':status': status, ':report': report, ':reason': reason},
+                update_expression='SET task_status = :status, '
+                                  'report_url = :report, '
+                                  'reason = :reason',
+                expression_attribute_values={
+                    ':status': status,
+                    ':report': report,
+                    ':reason': reason},
             )
             pass
         except Exception as e:
@@ -121,6 +168,14 @@ def processor(event, context):
             continue
         finally:
             pass
+
+
+def update_running_progress(db, task_id, progress, status='running'):
+    db.update_item(
+        key={'task_id': task_id},
+        update_expression='SET task_status = :status, progress = :progress',
+        expression_attribute_values={':status': status, ':progress': progress},
+    )
 
 
 def status_checker(event, context):
@@ -150,7 +205,9 @@ def status_checker(event, context):
             "statusCode": 200,
             "body": json.dumps({
                 "status": status,
-                "message": "ok",
+                "progress": task.get('progress'),
+                "repo_name": task.get('repo_name'),
+                "type": task.get('analysis_type'),
                 "report_url": task.get('report_url'),
             }),
         }
@@ -159,6 +216,9 @@ def status_checker(event, context):
             "statusCode": 200,
             "body": json.dumps({
                 "status": status,
+                "progress": task.get('progress'),
+                "repo_name": task.get('repo_name'),
+                "type": task.get('analysis_type'),
                 "reason": task.get('reason'),
             }),
         }
@@ -167,7 +227,9 @@ def status_checker(event, context):
         "statusCode": 200,
         "body": json.dumps({
             "status": task.get('task_status'),
-            "message": "ok",
+            "progress": task.get('progress'),
+            "repo_name": task.get('repo_name'),
+            "type": task.get('analysis_type'),
         }),
     }
 

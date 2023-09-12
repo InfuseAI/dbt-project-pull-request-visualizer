@@ -1,14 +1,18 @@
 import os
 import re
 import tempfile
-from enum import Enum
+from abc import ABCMeta, abstractmethod
+from typing import Tuple
 
-from github import Github, Auth, Repository, PullRequest
+from github import Github
+from github.Auth import Token
+from github.PullRequest import PullRequest
+from github.Repository import Repository
 
 import core.config
 from core.dbt import dbt_deps, dbt_parse, find_dbt_project, patch_dbt_profiles
 from core.piperider import piperider_run, piperider_compare_reports
-from core.utils import clone_github_repo, parse_github_pr_url, parse_github_url, console
+from core.utils import clone_github_repo, console, AnalysisType, parse_github_url
 
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
 
@@ -54,10 +58,42 @@ def _output_result_path(*args):
     return os.path.join(tempdir, *args)
 
 
-class AnalysisType(Enum):
-    UNKNOWN = ''
-    REPOSITORY = 'repository'
-    PULL_REQUEST = 'pull-request'
+class AnalyzerEventHandler(metaclass=ABCMeta):
+    progress: int = 0
+
+    @abstractmethod
+    def handle_run_start(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def handle_run_end(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def handle_run_progress(self, msg, progress: int = None):
+        raise NotImplementedError
+
+    @abstractmethod
+    def handle_run_error(self, error):
+        raise NotImplementedError
+
+
+class DefaultEventHandler(AnalyzerEventHandler):
+    def handle_run_start(self):
+        self.progress = 0
+        pass
+
+    def handle_run_end(self):
+        self.progress = 100
+        console.rule(f'{self.progress}% - Completed')
+
+    def handle_run_progress(self, msg, progress: int = None):
+        if progress is not None:
+            self.progress = progress
+        console.rule(f'{self.progress}% - {msg}')
+
+    def handle_run_error(self, error):
+        console.rule(error, style='bold red')
 
 
 class DbtProjectAnalyzer(object):
@@ -67,10 +103,11 @@ class DbtProjectAnalyzer(object):
                  upload: bool = False,
                  share: bool = False):
         self.url = url
+        self.event_handler: AnalyzerEventHandler = DefaultEventHandler()
 
         auth = None
         if GITHUB_TOKEN:
-            auth = Auth.Token(GITHUB_TOKEN)
+            auth = Token(GITHUB_TOKEN)
         self.github = Github(auth=auth)
 
         # Github
@@ -100,17 +137,14 @@ class DbtProjectAnalyzer(object):
         self.base_result: AnalyzerResult | None = None  # Used for PR
         self.head_result: AnalyzerResult | None = None  # Used for PR
 
-    def verify_github_url(self, url) -> (AnalysisType, Repository, PullRequest):
-        ret, repo_name, pr_id = parse_github_pr_url(url)
-        if ret is False:
-            ret, repo_name = parse_github_url(url)
-            if ret is False:
-                # Invalid GitHub URL
-                raise Exception(f"Invalid GitHub URL: {url}")
-            else:
-                analysis_type = AnalysisType.REPOSITORY
+    def set_event_handler(self, event_handler: AnalyzerEventHandler):
+        if event_handler and isinstance(event_handler, AnalyzerEventHandler):
+            self.event_handler = event_handler
         else:
-            analysis_type = AnalysisType.PULL_REQUEST
+            raise Exception('Invalid event handler')
+
+    def verify_github_url(self, url) -> Tuple[AnalysisType, Repository, PullRequest]:
+        analysis_type, pr_id, repo_name = parse_github_url(url)
 
         # Fetch GitHub repository
         repository = self.github.get_repo(repo_name)
@@ -132,6 +166,7 @@ class DbtProjectAnalyzer(object):
         self.analyze_type, self.repository, self.pull_request = self.verify_github_url(self.url)
 
         # Clone git repo
+        self.event_handler.handle_run_progress('Cloning Git Repository', progress=1)
         self.git_repo, self.project_path = clone_github_repo(self.repository)
         self.dbt_project_path = find_dbt_project(self.project_path)
 
@@ -145,13 +180,17 @@ class DbtProjectAnalyzer(object):
 
         return True
 
-    def generate_piperider_report(self, branch_or_commit) -> (str, str):
+    def generate_piperider_report(self, branch_or_commit) -> Tuple[str, str]:
         self.git_repo.git.checkout(branch_or_commit)
         if self.dbt_project_path is None:
             raise Exception("Failed to find dbt_project.yml")
 
         patch_dbt_profiles(self.dbt_project_path)
+
+        self.event_handler.handle_run_progress('Running dbt deps')
         dbt_deps(self.dbt_project_path)
+
+        self.event_handler.handle_run_progress('Running dbt parse')
         dbt_parse(self.dbt_project_path)
 
         piperider_output_path = _output_result_path(self.repository.full_name, branch_or_commit)
@@ -165,6 +204,8 @@ class DbtProjectAnalyzer(object):
             options['upload_project'] = self.project_name
             if self.share:
                 options['share'] = True
+
+        self.event_handler.handle_run_progress('Running piperider')
         console_output = piperider_run(self.dbt_project_path, options=options)
 
         report_url = None
@@ -178,7 +219,7 @@ class DbtProjectAnalyzer(object):
 
         return report_path, report_url
 
-    def compare_piperider_reports(self) -> (str, str):
+    def compare_piperider_reports(self) -> Tuple[str, str]:
         compare_output_path = _output_result_path(self.repository.full_name,
                                                   f'{self.head_branch}_vs_{self.base_branch}')
         os.makedirs(compare_output_path, exist_ok=True)
@@ -258,19 +299,23 @@ class DbtProjectAnalyzer(object):
         return content, panel_width
 
     def exec(self):
+        self.event_handler.handle_run_start()
         if self.load_github_url() is False:
             raise Exception(f"Failed to load github url: {self.url}")
 
+        # Analyze GitHub URL
         if self.analyze_type == AnalysisType.PULL_REQUEST:
-            return self.analyze_pull_request()
+            self.analyze_pull_request()
         elif self.analyze_type == AnalysisType.REPOSITORY:
-            return self.analyze_repository()
+            self.analyze_repository()
         else:
             raise Exception(f"Unknown analyze type: {self.analyze_type}")
 
+        self.event_handler.handle_run_end()
+
     def analyze_repository(self):
         branch = self.repository.default_branch
-        console.rule(f"Process Default Branch: '{branch}'")
+        self.event_handler.handle_run_progress(f"Process Default Branch: '{branch}'", progress=10)
         report_path, report_url = self.generate_piperider_report(branch)
         self.result = AnalyzerResult(branch, report_path, report_url)
 
@@ -281,7 +326,7 @@ class DbtProjectAnalyzer(object):
         head_sha = self.pull_request.head.sha if self.pull_request.merged is False \
             else self.pull_request.merge_commit_sha
 
-        console.rule(f"Process Base Branch: '{base_branch}' {base_sha[0:7]}")
+        self.event_handler.handle_run_progress(f"Process Base Branch: '{base_branch}' {base_sha[0:7]}", progress=10)
         # Set environment variables for unknown branch
         with EnvContext({
             'PIPERIDER_GIT_BRANCH': base_branch,
@@ -290,7 +335,7 @@ class DbtProjectAnalyzer(object):
             report_path, report_url = self.generate_piperider_report(base_sha)
             self.base_result = AnalyzerResult(base_branch, report_path, report_url)
 
-        console.rule(f"Process Head Branch: '{head_branch}' {head_sha[0:7]}")
+        self.event_handler.handle_run_progress(f"Process Head Branch: '{head_branch}' {head_sha[0:7]}", progress=60)
         with EnvContext({
             'PIPERIDER_GIT_BRANCH': head_branch,
             'PIPERIDER_GIT_SHA': head_sha,
@@ -298,7 +343,7 @@ class DbtProjectAnalyzer(object):
             report_path, report_url = self.generate_piperider_report(head_sha)
             self.head_result = AnalyzerResult(head_branch, report_path, report_url)
 
-        console.rule(f"Compare '{base_branch}'...'{head_branch}'")
+        self.event_handler.handle_run_progress(f"Compare '{base_branch}'...'{head_branch}'", progress=90)
         with EnvContext({
             'GITHUB_PR_ID': self.pull_request.number,
             'GITHUB_PR_URL': self.pull_request.html_url,

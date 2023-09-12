@@ -4,13 +4,20 @@ import re
 import shutil
 import subprocess
 import tempfile
-from typing import List
+from enum import Enum
+from typing import List, Tuple
 
 from git import Repo
 from github import Repository
 from rich.console import Console
 
 console = Console()
+
+
+class AnalysisType(Enum):
+    UNKNOWN = ''
+    REPOSITORY = 'repository'
+    PULL_REQUEST = 'pull-request'
 
 
 class RunCommandException(BaseException):
@@ -21,7 +28,7 @@ class RunCommandException(BaseException):
         super().__init__('Run command failed')
 
 
-def parse_github_pr_url(url) -> (bool, str, int):
+def parse_github_pr_url(url) -> Tuple[bool, str, int | None]:
     # URL format "https://github.com/owner/reponame/pull/prID"
     match = re.search(r'https://github\.com/([^/]+/[^/]+)/pull/(\d+)', url)
     if match:
@@ -31,7 +38,7 @@ def parse_github_pr_url(url) -> (bool, str, int):
     return False, '', None
 
 
-def parse_github_url(url) -> (bool, str):
+def parse_github_repo_url(url) -> Tuple[bool, str]:
     # URL format "https://github.com/owner/reponame"
     match = re.search(r'https://github\.com/([^/]+/[^/]+)', url)
     if match:
@@ -40,7 +47,21 @@ def parse_github_url(url) -> (bool, str):
     return False, ''
 
 
-def clone_github_repo(repo: Repository, auto_delete_clone_dir: bool = True) -> (Repo, str):
+def parse_github_url(url: str) -> Tuple[AnalysisType, int, str]:
+    ret, repo_name, pr_id = parse_github_pr_url(url)
+    if ret is False:
+        ret, repo_name = parse_github_repo_url(url)
+        if ret is False:
+            # Invalid GitHub URL
+            raise Exception(f"Invalid GitHub URL: {url}")
+        else:
+            analysis_type = AnalysisType.REPOSITORY
+    else:
+        analysis_type = AnalysisType.PULL_REQUEST
+    return analysis_type, pr_id, repo_name
+
+
+def clone_github_repo(repo: Repository, auto_delete_clone_dir: bool = True) -> Tuple[Repo, str]:
     tempdir = tempfile.mkdtemp()
     if auto_delete_clone_dir:
         atexit.register(shutil.rmtree, tempdir)
