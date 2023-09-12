@@ -5,11 +5,33 @@ from enum import Enum
 
 from github import Github, Auth, Repository, PullRequest
 
+import core.config
 from core.dbt import dbt_deps, dbt_parse, find_dbt_project, patch_dbt_profiles
 from core.piperider import piperider_run, piperider_compare_reports
 from core.utils import clone_github_repo, parse_github_pr_url, parse_github_url, console
 
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+
+
+class EnvContext(object):
+    def __init__(self, envs: dict, **kwargs):
+        self.envs = envs or kwargs
+        self.existing_envs = {}
+
+    def __enter__(self):
+        for k, v in self.envs.items():
+            if k in os.environ:
+                self.existing_envs[k] = os.environ[k]
+            console.print('[Debug] Set environment variable: ', k, v) if core.config.DEBUG else None
+            os.environ[k] = str(v)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for k in self.envs.keys():
+            if self.existing_envs.get(k):
+                os.environ[k] = self.existing_envs[k]
+            else:
+                console.print('[Debug] Unset environment variable: ', k) if core.config.DEBUG else None
+                del os.environ[k]
 
 
 class AnalyzerResult(object):
@@ -261,25 +283,29 @@ class DbtProjectAnalyzer(object):
 
         console.rule(f"Process Base Branch: '{base_branch}' {base_sha[0:7]}")
         # Set environment variables for unknown branch
-        os.environ['PIPERIDER_GIT_BRANCH'] = base_branch
-        os.environ['PIPERIDER_GIT_SHA'] = base_sha
-        report_path, report_url = self.generate_piperider_report(base_sha)
-        self.base_result = AnalyzerResult(base_branch, report_path, report_url)
-        # Cleanup environment variables
-        del os.environ['PIPERIDER_GIT_BRANCH']
-        del os.environ['PIPERIDER_GIT_SHA']
+        with EnvContext({
+            'PIPERIDER_GIT_BRANCH': base_branch,
+            'PIPERIDER_GIT_SHA': base_sha,
+        }):
+            report_path, report_url = self.generate_piperider_report(base_sha)
+            self.base_result = AnalyzerResult(base_branch, report_path, report_url)
 
-        os.environ['PIPERIDER_GIT_BRANCH'] = head_branch
-        os.environ['PIPERIDER_GIT_SHA'] = head_sha
         console.rule(f"Process Head Branch: '{head_branch}' {head_sha[0:7]}")
-        report_path, report_url = self.generate_piperider_report(head_sha)
-        self.head_result = AnalyzerResult(head_branch, report_path, report_url)
-        del os.environ['PIPERIDER_GIT_BRANCH']
-        del os.environ['PIPERIDER_GIT_SHA']
+        with EnvContext({
+            'PIPERIDER_GIT_BRANCH': head_branch,
+            'PIPERIDER_GIT_SHA': head_sha,
+        }):
+            report_path, report_url = self.generate_piperider_report(head_sha)
+            self.head_result = AnalyzerResult(head_branch, report_path, report_url)
 
         console.rule(f"Compare '{base_branch}'...'{head_branch}'")
-        report_path, report_url = self.compare_piperider_reports()
-        self.result = AnalyzerResult(f'{head_branch}_vs_{base_branch}', report_path, report_url)
+        with EnvContext({
+            'GITHUB_PR_ID': self.pull_request.number,
+            'GITHUB_PR_URL': self.pull_request.html_url,
+            'GITHUB_PR_TITLE': self.pull_request.title
+        }):
+            report_path, report_url = self.compare_piperider_reports()
+            self.result = AnalyzerResult(f'{head_branch}_vs_{base_branch}', report_path, report_url)
 
     def ping(self):
         return "pong 🏓 🏓 🏓 \n Github URL: " + self.url

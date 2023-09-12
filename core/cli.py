@@ -2,6 +2,7 @@ import os
 
 import click
 
+import core.config
 from core.analyzer import DbtProjectAnalyzer
 from core.utils import RunCommandException
 
@@ -11,11 +12,13 @@ from core.utils import RunCommandException
 @click.option('--upload/--no-upload', default=False, help='Upload the report to PipeRider Cloud', required=False)
 @click.option('--upload-project', default=None, help='PipeRider Cloud Project Name', required=False)
 @click.option('--upload-token', default=None, help='PipeRider Cloud API Token', required=False)
+@click.option('--debug/--no-debug', default=False, help='Enable debug mode', required=False)
 @click.pass_context
 def cli(ctx: click.Context, github_url: str, **kwargs):
     upload = kwargs.get('upload', False)
     upload_project = kwargs.get('upload_project') or os.getenv('PIPERIDER_CLOUD_PROJECT', None)
     upload_token = kwargs.get('upload_token') or os.getenv('PIPERIDER_CLOUD_PROJECT', None)
+    core.config.DEBUG = kwargs.get('debug', False)
 
     if upload and (upload_project is None or upload_token is None):
         click.echo('Please specify --upload-project and --upload-token when using --upload option')
