@@ -7,7 +7,7 @@ def piperider_run(dbt_project_dir: str, options: dict = None):
     cmd = ['piperider', 'run', '--skip-datasource', '--dbt-project-dir', dbt_project_dir,
            '--dbt-profiles-dir',
            dbt_project_dir]
-    extra_env = None
+    extra_env = {}
     if options:
         if options.get('output'):
             cmd += ['-o', options['output']]
@@ -24,7 +24,7 @@ def piperider_run(dbt_project_dir: str, options: dict = None):
 
 def piperider_compare_reports(dbt_project_path, result_path, options: dict = None):
     cmd = ['piperider', 'compare-reports', '--last', '-o', result_path]
-    extra_env = None
+    extra_env = {}
     if options:
         if options.get('upload_project'):
             cmd += ['--upload', '--project', options['upload_project']]

@@ -202,14 +202,14 @@ class DbtProjectAnalyzer(object):
         if self.upload:
             options['api_token'] = self.api_token
             options['upload_project'] = self.project_name
-            if self.share:
-                options['share'] = True
+        if self.share:
+            options['share'] = True
 
         self.event_handler.handle_run_progress('Running piperider')
         console_output = piperider_run(self.dbt_project_path, options=options)
 
         report_url = None
-        if self.upload:
+        if self.upload or self.share:
             match = re.search(r'Report #.* URL: (\S+)\n', console_output)
             if match:
                 report_url = match.group(1)
@@ -231,12 +231,13 @@ class DbtProjectAnalyzer(object):
         if self.upload:
             options['api_token'] = self.api_token
             options['upload_project'] = self.project_name
-
+        if self.share:
+            options['share'] = True
         console_output = piperider_compare_reports(self.dbt_project_path, os.path.abspath(compare_output_path),
                                                    options=options)
         # Post-compare
         report_url = None
-        if self.upload:
+        if self.upload or self.share:
             match = re.search(r'Comparison report URL: (\S+)\n', console_output)
             if match:
                 report_url = match.group(1)

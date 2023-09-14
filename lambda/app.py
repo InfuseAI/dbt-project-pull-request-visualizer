@@ -110,7 +110,14 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
 
     upload: bool = True if piperider_token and piperider_project else False
 
-    analyzer = DbtProjectAnalyzer(github_url, api_token=piperider_token, project_name=piperider_project, upload=upload)
+    # Enable share to temporary report, if piperider_token and piperider_project are not provided
+    share: bool = True if piperider_project is None and piperider_token is None else False
+
+    analyzer = DbtProjectAnalyzer(github_url,
+                                  api_token=piperider_token,
+                                  project_name=piperider_project,
+                                  upload=upload,
+                                  share=share)
     if event_handler:
         analyzer.set_event_handler(event_handler)
 
