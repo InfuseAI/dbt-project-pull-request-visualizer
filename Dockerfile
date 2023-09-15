@@ -5,6 +5,7 @@ FROM python:3.10-slim
 
 # Include global arg in this stage of the build
 ARG FUNCTION_DIR
+ARG SENTRY_DSN
 # Set working directory to function root directory
 WORKDIR ${FUNCTION_DIR}
 
@@ -23,6 +24,8 @@ COPY core ${FUNCTION_DIR}/core
 COPY README.md ${FUNCTION_DIR}
 COPY LICENSE ${FUNCTION_DIR}
 COPY hack ${FUNCTION_DIR}/hack
+
+ENV SENTRY_DSN $SENTRY_DSN
 
 RUN pip install --no-cache-dir -e .
 

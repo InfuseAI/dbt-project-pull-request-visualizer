@@ -2,6 +2,9 @@ import json
 import os
 from datetime import datetime
 
+import sentry_sdk
+from sentry_sdk.integrations.aws_lambda import AwsLambdaIntegration
+
 from core.analyzer import DbtProjectAnalyzer, AnalyzerEventHandler
 from core.utils import parse_github_url
 from .aws.api_gateway import parse_event_body
@@ -10,6 +13,17 @@ from .aws.sqs import SQS
 
 DYNAMODB_TABLE_NAME = 'dbt-github-analyzer-status-table'
 SQS_QUEUE_NAME = 'dbt-github-analyzer-task-queue'
+SENTRY_DNS = os.environ.get('SENTRY_DNS', None)
+
+if SENTRY_DNS:
+    sentry_sdk.init(
+        dsn=SENTRY_DNS,
+        integrations=[AwsLambdaIntegration(timeout_warning=True)],
+        # Set traces_sample_rate to 1.0 to capture 100%
+        # of transactions for performance monitoring.
+        # We recommend adjusting this value in production.
+        traces_sample_rate=1.0,
+    )
 
 
 # Lambda Handler Functions
