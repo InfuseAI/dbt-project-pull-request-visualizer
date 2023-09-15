@@ -26,7 +26,7 @@ if SENTRY_DSN:
 # Lambda Handler Functions
 def receiver(event, context):
     if SENTRY_DSN:
-        sentry_sdk.start_transaction(name='dbt-analyzer-receiver', op='receiver')
+        sentry_sdk.start_transaction(name='dbt-analyzer-receiver', op='receiver', sampled=True)
     try:
         body = parse_event_body(event)
         if body.get('github_url') is None:
@@ -162,7 +162,7 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
 
 def processor(event, context):
     if SENTRY_DSN:
-        sentry_sdk.start_transaction(name='dbt-analyzer-processor', op='processor')
+        sentry_sdk.start_transaction(name='dbt-analyzer-processor', op='processor', sampled=True)
     # TODO: get options from SQS message
     db = DynamoDB.factory(DYNAMODB_TABLE_NAME)
 
