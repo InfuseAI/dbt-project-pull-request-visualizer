@@ -14,19 +14,18 @@ from .aws.sqs import SQS
 DYNAMODB_TABLE_NAME = 'dbt-github-analyzer-status-table'
 SQS_QUEUE_NAME = 'dbt-github-analyzer-task-queue'
 SENTRY_DSN = os.environ.get('SENTRY_DSN', None)
+SENTRY_SAMPLE_RATE = float(os.environ.get('SENTRY_SAMPLE_RATE', 0.0))
 
 if SENTRY_DSN:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         integrations=[AwsLambdaIntegration(timeout_warning=True)],
-        traces_sample_rate=0,
+        traces_sample_rate=SENTRY_SAMPLE_RATE,
     )
 
 
 # Lambda Handler Functions
 def receiver(event, context):
-    if SENTRY_DSN:
-        sentry_sdk.start_transaction(name='dbt-analyzer-receiver', op='receiver', sampled=True)
     try:
         body = parse_event_body(event)
         if body.get('github_url') is None:
@@ -161,8 +160,6 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
 
 
 def processor(event, context):
-    if SENTRY_DSN:
-        sentry_sdk.start_transaction(name='dbt-analyzer-processor', op='processor', sampled=True)
     # TODO: get options from SQS message
     db = DynamoDB.factory(DYNAMODB_TABLE_NAME)
 
