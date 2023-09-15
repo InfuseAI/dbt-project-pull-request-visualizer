@@ -39,4 +39,4 @@ local-invoke-status-checker: build
 
 # Deploy
 deploy: build
-	sam deploy --no-confirm-changeset
+	sam deploy --no-confirm-changeset --parameter-overrides SentryDSN=$(SENTRY_DSN)

@@ -11,6 +11,12 @@ Globals:
     Tags:
       "app": "dbt-project-visualizer"
 
+Parameters:
+  SentryDSN:
+    Type: String
+    Description: Sentry DSN
+    Default: ""
+
 Resources:
   # SQS
   DBTGitHubAnalyzerSQSQueue:
@@ -55,6 +61,7 @@ Resources:
         Variables:
           "DEBUG": "false"
           "LOCALHOST": "localhost"
+          "SENTRY_DSN": !Ref SentryDSN
       Events:
         AnalysisTaskReceiverApiEvent:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
@@ -91,6 +98,7 @@ Resources:
         Variables:
           "DEBUG": "false"
           "LOCALHOST": "localhost"
+          "SENTRY_DSN": !Ref SentryDSN
       Events:
         AnalysisTaskStatusCheckerEvent:
           Type: Api
@@ -120,6 +128,7 @@ Resources:
         Variables:
           "DEBUG": "false"
           "LOCALHOST": "localhost"
+          "SENTRY_DSN": !Ref SentryDSN
       Events:
         AnalysisTaskProcessorSQSEvent:
           Type: SQS
