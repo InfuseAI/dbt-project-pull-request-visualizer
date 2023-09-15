@@ -13,11 +13,11 @@ from .aws.sqs import SQS
 
 DYNAMODB_TABLE_NAME = 'dbt-github-analyzer-status-table'
 SQS_QUEUE_NAME = 'dbt-github-analyzer-task-queue'
-SENTRY_DNS = os.environ.get('SENTRY_DNS', None)
+SENTRY_DSN = os.environ.get('SENTRY_DSN', None)
 
-if SENTRY_DNS:
+if SENTRY_DSN:
     sentry_sdk.init(
-        dsn=SENTRY_DNS,
+        dsn=SENTRY_DSN,
         integrations=[AwsLambdaIntegration(timeout_warning=True)],
         # Set traces_sample_rate to 1.0 to capture 100%
         # of transactions for performance monitoring.
