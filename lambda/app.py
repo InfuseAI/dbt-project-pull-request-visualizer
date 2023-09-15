@@ -90,12 +90,25 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
     if github_url is None:
         raise Exception('github_url is required')
 
+    is_share_to_quick_look = payload.get('piperider_share_to_quick_look', False)
+
     print('[Handling Request]')
     print('github_url: ', github_url)
     print('github_token: ', payload.get('github_token'))
     print('piperider_api_service', payload.get('piperider_api_service'))
-    print('piperider_api_token', "******" if payload.get('piperider_api_token') else None)
-    print('piperider_project', payload.get('piperider_project'))
+    if is_share_to_quick_look:
+        print('piperider_share_to_quick_look', is_share_to_quick_look)
+        upload = False
+        share = True
+        piperider_token = None
+        piperider_project = None
+    else:
+        print('piperider_api_token', "******" if payload.get('piperider_api_token') else None)
+        print('piperider_project', payload.get('piperider_project'))
+        piperider_token = payload.get('piperider_api_token')
+        piperider_project = payload.get('piperider_project')
+        upload: bool = True if piperider_token and piperider_project else False
+        share = False
 
     if payload.get('github_token'):
         # Set GitHub Token to environment variable
@@ -104,14 +117,6 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
     if payload.get('piperider_api_service'):
         # Set Piperider API Service to environment variable
         os.environ['PIPERIDER_API_SERVICE'] = payload.get('piperider_api_service')
-
-    piperider_token = payload.get('piperider_api_token')
-    piperider_project = payload.get('piperider_project')
-
-    upload: bool = True if piperider_token and piperider_project else False
-
-    # Enable share to temporary report, if piperider_token and piperider_project are not provided
-    share: bool = True if piperider_project is None and piperider_token is None else False
 
     analyzer = DbtProjectAnalyzer(github_url,
                                   api_token=piperider_token,
