@@ -175,6 +175,11 @@ class DbtProjectAnalyzer(object):
             self.base_sha = self.pull_request.base.sha
             self.head_branch = self.pull_request.head.ref
             self.head_sha = self.pull_request.head.sha
+
+            # Handle cross-repository pull request
+            if self.pull_request.base.repo.full_name != self.pull_request.head.repo.full_name:
+                self.git_repo.create_remote('head', self.pull_request.head.repo.clone_url)
+                self.git_repo.git.fetch('head')
         else:
             self.base_branch = self.repository.default_branch
 
