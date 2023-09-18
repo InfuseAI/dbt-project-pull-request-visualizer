@@ -42,7 +42,15 @@ class AnalyzerResult(object):
     def __init__(self, name: str, path: str, url: str = None):
         self.name = name
         self.path = path
-        self.url = url
+        self.url = AnalyzerResult.patch_utm_source(url, 'dbt_analyzer')
+
+    @staticmethod
+    def patch_utm_source(url: str, utm_source: str):
+        if url is None:
+            return None
+        regex_rule = r'(?<=\?utm_source=)[^&]+'
+        replaced_url = re.sub(regex_rule, utm_source, url)
+        return replaced_url
 
     @property
     def report(self):
