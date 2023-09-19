@@ -48,25 +48,36 @@ class LocalDynamoDB(DynamoDB):
     def __init__(self, table_name: str):
         self.table_name = table_name
         self.dynamodb = boto3.resource('dynamodb', endpoint_url=LOCAL_DYNAMODB_ENDPOINT_URL)
-        if table_name not in self.dynamodb.meta.client.list_tables()['TableNames']:
-            # Create table
-            self.dynamodb.create_table(
-                TableName=table_name,
-                KeySchema=[
-                    {
-                        'AttributeName': 'task_id',
-                        'KeyType': 'HASH'
-                    },
-                ],
-                AttributeDefinitions=[
-                    {
-                        'AttributeName': 'task_id',
-                        'AttributeType': 'S'
-                    },
-                ],
-                ProvisionedThroughput={
-                    'ReadCapacityUnits': 5,
-                    'WriteCapacityUnits': 5
-                }
-            )
+        retry = 0
+
+        # Retry 3 times if table not exists
+        while retry < 3:
+            try:
+                if table_name in self.dynamodb.meta.client.list_tables()['TableNames']:
+                    break
+                # Create table
+                self.dynamodb.create_table(
+                    TableName=table_name,
+                    KeySchema=[
+                        {
+                            'AttributeName': 'task_id',
+                            'KeyType': 'HASH'
+                        },
+                    ],
+                    AttributeDefinitions=[
+                        {
+                            'AttributeName': 'task_id',
+                            'AttributeType': 'S'
+                        },
+                    ],
+                    ProvisionedThroughput={
+                        'ReadCapacityUnits': 1,
+                        'WriteCapacityUnits': 1
+                    }
+                )
+            except Exception as e:
+                print(e)
+                retry += 1
+                import time
+                time.sleep(5)
         self.table = self.dynamodb.Table(self.table_name)
