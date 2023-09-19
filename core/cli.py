@@ -14,6 +14,7 @@ from core.utils import RunCommandException
 @click.option('--upload-token', default=None, help='PipeRider Cloud API Token', required=False)
 @click.option('--share/--no-share', default=False, help='Share the report to PipeRider Cloud', required=False)
 @click.option('--debug/--no-debug', default=False, help='Enable debug mode', required=False)
+@click.option('--dbt-project-dir', default=None, help='Which directory to look in for the dbt_project.yml file', required=False)
 @click.pass_context
 def cli(ctx: click.Context, github_url: str, **kwargs):
     upload = kwargs.get('upload', False)
@@ -21,6 +22,7 @@ def cli(ctx: click.Context, github_url: str, **kwargs):
     upload_token = kwargs.get('upload_token') or os.getenv('PIPERIDER_CLOUD_PROJECT', None)
     share = kwargs.get('share', False)
     core.config.DEBUG = kwargs.get('debug', False)
+    dbt_project_dir = kwargs.get('dbt_project_dir', None)
 
     if upload and (upload_project is None or upload_token is None):
         click.echo('Please specify --upload-project and --upload-token when using --upload option')
@@ -29,6 +31,7 @@ def cli(ctx: click.Context, github_url: str, **kwargs):
 
     try:
         analyzer = DbtProjectAnalyzer(github_url,
+                                      dbt_project_path=dbt_project_dir,
                                       upload=upload,
                                       share=share,
                                       project_name=upload_project,

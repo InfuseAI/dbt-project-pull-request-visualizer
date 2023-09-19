@@ -107,6 +107,7 @@ class DefaultEventHandler(AnalyzerEventHandler):
 class DbtProjectAnalyzer(object):
     def __init__(self, url: str,
                  api_token: str = None,
+                 dbt_project_path: str = None,
                  project_name: str = None,
                  upload: bool = False,
                  share: bool = False):
@@ -132,7 +133,7 @@ class DbtProjectAnalyzer(object):
         self.project_path = None
 
         # Dbt
-        self.dbt_project_path = None
+        self.dbt_project_path = dbt_project_path
 
         # Control
         self.upload = upload
@@ -176,7 +177,10 @@ class DbtProjectAnalyzer(object):
         # Clone git repo
         self.event_handler.handle_run_progress('Cloning Git Repository', progress=1)
         self.git_repo, self.project_path = clone_github_repo(self.repository)
-        self.dbt_project_path = find_dbt_project(self.project_path)
+        if self.dbt_project_path is None:
+            self.dbt_project_path = find_dbt_project(self.project_path)
+        else:
+            self.dbt_project_path = os.path.join(self.project_path, self.dbt_project_path)
 
         if self.analyze_type == AnalysisType.PULL_REQUEST:
             self.base_branch = self.pull_request.base.ref
