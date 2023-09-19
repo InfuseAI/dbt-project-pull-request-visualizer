@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import sentry_sdk
 from sentry_sdk.integrations.aws_lambda import AwsLambdaIntegration
@@ -11,16 +11,19 @@ from .aws.api_gateway import parse_event_body
 from .aws.dynamodb import DynamoDB
 from .aws.sqs import SQS
 
+DEBUG = os.environ.get('DEBUG', 'true')
 DYNAMODB_TABLE_NAME = 'dbt-github-analyzer-status-table'
 SQS_QUEUE_NAME = 'dbt-github-analyzer-task-queue'
 SENTRY_DSN = os.environ.get('SENTRY_DSN', None)
 SENTRY_SAMPLE_RATE = float(os.environ.get('SENTRY_SAMPLE_RATE', 0.0))
 
 if SENTRY_DSN:
+    environment = 'production' if DEBUG == 'false' else 'development'
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         integrations=[AwsLambdaIntegration(timeout_warning=True)],
         traces_sample_rate=SENTRY_SAMPLE_RATE,
+        environment=environment
     )
 
 
@@ -44,12 +47,14 @@ def receiver(event, context):
     task_id = ret['MessageId']
 
     db = DynamoDB.factory(DYNAMODB_TABLE_NAME)
+    now = datetime.utcnow()
     db.put_item({
         'task_id': task_id,
         'task_status': 'pending',
         'analysis_type': analysis_type.value,
         'repo_name': repo_name,
-        'created_at': datetime.utcnow().isoformat()
+        'created_at': now.isoformat(),
+        'expires_at': int((now + timedelta(days=7)).timestamp())
     })
 
     return {

@@ -42,9 +42,13 @@ Resources:
       ProvisionedThroughput:
         ReadCapacityUnits: 1
         WriteCapacityUnits: 1
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
       Tags:
         - Key: "app"
           Value: "dbt-project-visualizer"
+
 
   # Lambda Functions
   AnalysisTaskReceiverFunction:
