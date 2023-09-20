@@ -21,9 +21,9 @@ jobs:
           name: Setup AWS SAM CLI
           command: |
             sudo apt-get update
-            pip install awscli
+            pip3 install awscli
             aws --version
-            pip install aws-sam-cli
+            pip3 install aws-sam-cli
             sam --version
 
       - run:
