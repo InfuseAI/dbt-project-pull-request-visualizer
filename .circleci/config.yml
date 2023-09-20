@@ -1,0 +1,48 @@
+version: '2.1'
+
+orbs:
+  aws-cli: circleci/aws-cli@4.0
+  sam: circleci/aws-sam-serverless@5.0
+
+executors:
+  machine-executor:
+    machine:
+      image: ubuntu-2004:202010-01
+    resource_class: arm.medium
+
+jobs:
+  build-and-deploy:
+    executor: machine-executor
+    steps:
+      - checkout
+      - run:
+          name: Setup Python 3.10
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y python3.10
+            python3.10 --version
+      - run:
+          name: Setup AWS SAM CLI
+          command: |
+            sudo apt-get update
+            pip install awscli
+            aws --version
+            pip install aws-sam-cli
+            sam --version
+
+      - run:
+          name: Build Image
+          command: |
+            echo "Build Lambda Functions image..."
+            sam build \
+              --use-container \
+              --parallel \
+              --no-cached \
+              --region ${AWS_REGION}
+
+workflows:
+  version: 2
+  dbt_analyzer_lambda_pipeline:
+    jobs:
+      - build-and-deploy
+
