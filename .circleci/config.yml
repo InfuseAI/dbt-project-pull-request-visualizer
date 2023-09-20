@@ -4,15 +4,11 @@ orbs:
   aws-cli: circleci/aws-cli@4.0
   sam: circleci/aws-sam-serverless@5.0
 
-executors:
-  machine-executor:
-    machine:
-      image: ubuntu-2004:202010-01
-    resource_class: arm.medium
-
 jobs:
   build-and-deploy:
-    executor: machine-executor
+    machine:
+      image: ubuntu-2204:2023.07.1
+    resource_class: arm.medium
     steps:
       - checkout
       - run:
