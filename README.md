@@ -41,4 +41,5 @@ AWS.
 
 ## Deployment
 
-TBD...
+Create GitHub Release with the tag `vX.X.X` and the release will be automatically deployed to AWS by
+our [circleci](https://app.circleci.com/pipelines/github/InfuseAI/dbt-project-pull-request-visualizer) deploy pipeline.
