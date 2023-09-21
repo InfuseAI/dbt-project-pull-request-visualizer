@@ -127,9 +127,11 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
         upload: bool = True if piperider_token and piperider_project else False
         share = False
 
+    # Set GitHub Token to environment variable
     if payload.get('github_token'):
-        # Set GitHub Token to environment variable
         os.environ['GITHUB_TOKEN'] = payload.get('github_token')
+    else:
+        os.environ['GITHUB_TOKEN'] = ''
 
     if payload.get('piperider_api_service'):
         # Set Piperider API Service to environment variable
