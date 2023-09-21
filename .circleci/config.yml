@@ -1,9 +1,5 @@
 version: '2.1'
 
-orbs:
-  aws-cli: circleci/aws-cli@4.0
-  sam: circleci/aws-sam-serverless@5.0
-
 jobs:
   build-and-deploy:
     machine:
@@ -25,7 +21,6 @@ jobs:
             aws --version
             pip3 install aws-sam-cli
             sam --version
-
       - run:
           name: Build Image
           command: |
@@ -35,10 +30,28 @@ jobs:
               --parallel \
               --no-cached \
               --region ${AWS_REGION}
+      - run:
+          name: Deploy Lambda Functions
+          command: |
+            echo "Deploy Lambda Functions..."
+            sam deploy \
+              --no-fail-on-empty-changeset \
+              --region ${AWS_REGION} \
+              --stack-name dbt-project-visualizer \
+              --resolve-s3 \
+              --capabilities CAPABILITY_IAM \
+              --no-confirm-changeset \
+              --image-repository ${ECR_REPOSITORY} \
+              --parameter-overrides \
+                SentryDSN=${SENTRY_DSN}
 
 workflows:
   version: 2
   dbt_analyzer_lambda_pipeline:
     jobs:
-      - build-and-deploy
-
+      - build-and-deploy:
+          filters:
+            branches:
+              ignore: /.*/  # Ignore all branch builds
+            tags:
+              only: /^v.*/  # Only trigger for tags with a pattern like v1.0, v2.5.3, etc.
