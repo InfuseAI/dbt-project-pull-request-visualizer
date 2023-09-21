@@ -5,10 +5,12 @@ import shutil
 import subprocess
 import tempfile
 from enum import Enum
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+from urllib.parse import urlparse
 
 from git import Repo
 from github import Repository
+from github.Auth import Token
 from rich.console import Console
 
 console = Console()
@@ -61,11 +63,17 @@ def parse_github_url(url: str) -> Tuple[AnalysisType, int, str]:
     return analysis_type, pr_id, repo_name
 
 
-def clone_github_repo(repo: Repository, auto_delete_clone_dir: bool = True) -> Tuple[Repo, str]:
+def clone_github_repo(repo: Repository, auth: Optional[Token], auto_delete_clone_dir: bool = True) -> Tuple[Repo, str]:
     tempdir = tempfile.mkdtemp()
     if auto_delete_clone_dir:
         atexit.register(shutil.rmtree, tempdir)
-    git_repo = Repo.clone_from(repo.clone_url, tempdir)
+
+    if auth is None:
+        git_repo = Repo.clone_from(repo.clone_url, tempdir)
+    else:
+        parsed_url = urlparse(repo.clone_url)
+        url = f'{parsed_url.scheme}://{auth.token}@{parsed_url.hostname}{parsed_url.path}'
+        git_repo = Repo.clone_from(url, tempdir)
     return git_repo, tempdir
 
 
