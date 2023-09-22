@@ -14,8 +14,6 @@ from core.dbt import dbt_deps, dbt_parse, find_dbt_project, patch_dbt_profiles
 from core.piperider import piperider_run, piperider_compare_reports
 from core.utils import clone_github_repo, console, AnalysisType, parse_github_url
 
-GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
-
 
 class EnvContext(object):
     def __init__(self, envs: dict, **kwargs):
@@ -114,9 +112,12 @@ class DbtProjectAnalyzer(object):
         self.url = url
         self.event_handler: AnalyzerEventHandler = DefaultEventHandler()
 
+        github_token = os.environ.get('GITHUB_TOKEN', '')
         auth = None
-        if GITHUB_TOKEN:
-            auth = Token(GITHUB_TOKEN)
+        if github_token:
+            auth = Token(github_token)
+
+        self.auth = auth
         self.github = Github(auth=auth)
 
         # Github
@@ -176,7 +177,7 @@ class DbtProjectAnalyzer(object):
 
         # Clone git repo
         self.event_handler.handle_run_progress('Cloning Git Repository', progress=1)
-        self.git_repo, self.project_path = clone_github_repo(self.repository)
+        self.git_repo, self.project_path = clone_github_repo(self.repository, self.auth)
         if self.dbt_project_path is None:
             self.dbt_project_path = find_dbt_project(self.project_path)
         else:
