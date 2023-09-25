@@ -7,5 +7,5 @@ ruamel.yaml
 click>=7.1
 dbt-core~=1.6.0
 dbt-duckdb~=1.6.0
-piperider[duckdb]@git+https://github.com/InfuseAI/piperider.git@feature/sc-32292/cli-piperider-cli-can-upload-the-report-to
+piperider[duckdb]@git+https://github.com/InfuseAI/piperider.git
 sentry-sdk>=1.3.1
