@@ -108,11 +108,16 @@ class DbtProjectAnalyzer(object):
                  dbt_project_path: str = None,
                  project_name: str = None,
                  upload: bool = False,
-                 share: bool = False):
+                 share: bool = False,
+                 enable_quick_look_share: bool = True):
         self.url = url
         self.event_handler: AnalyzerEventHandler = DefaultEventHandler()
 
         github_token = os.environ.get('GITHUB_TOKEN', '')
+
+        if enable_quick_look_share:
+            os.environ['PIPERIDER_ENABLE_QUICK_LOOK_SHARE'] = 'true'
+
         auth = None
         if github_token:
             auth = Token(github_token)
