@@ -23,10 +23,11 @@ class AnalysisType(Enum):
 
 
 class RunCommandException(BaseException):
-    def __init__(self, cmd: List[str], return_code: int, msg: str = None):
+    def __init__(self, cmd: List[str], return_code: int, msg: str = None, console_output: str = None):
         self.cmd: List[str] = cmd
         self.return_code: int = return_code
         self.msg = msg
+        self.console_output = console_output
         super().__init__('Run command failed')
 
 
@@ -104,6 +105,6 @@ def run_command(cmd, cwd=None, env=None):
 
     if return_code != 0:
         console.print(f"[[bold red]Error[/bold red]] executing command:\n{outs}")
-        raise RunCommandException(cmd, return_code)
+        raise RunCommandException(cmd, return_code, console_output=outs)
     else:
         return outs

@@ -6,7 +6,7 @@ import sentry_sdk
 from sentry_sdk.integrations.aws_lambda import AwsLambdaIntegration
 
 from core.analyzer import DbtProjectAnalyzer, AnalyzerEventHandler
-from core.utils import parse_github_url
+from core.utils import parse_github_url, RunCommandException
 from .aws.api_gateway import parse_event_body
 from .aws.dynamodb import DynamoDB
 from .aws.sqs import SQS
@@ -147,12 +147,18 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
 
     # TODO: handle exception
     reason = ''
+    console_output = None
     try:
         analyzer.exec()
         status = 'completed'
     except BaseException as e:
-        print(f'Error: {str(e)}')
-        reason = str(e)
+        if isinstance(e, RunCommandException):
+            print(f'Error: {e.msg}')
+            reason = e.msg
+            console_output = e.console_output
+        else:
+            print(f'Error: {str(e)}')
+            reason = str(e)
         status = 'failed'
 
     if analyzer.result:
@@ -160,10 +166,11 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
     else:
         report_url = None
         status = 'failed'
-        reason = 'Failed to generate report'
+        if reason == '':
+            reason = 'Failed to generate report'
 
     # TODO: return the report URL
-    return status, report_url, reason
+    return status, report_url, reason, console_output
 
 
 def processor(event, context):
@@ -175,18 +182,22 @@ def processor(event, context):
         task_event_handler = TaskEventHandler(db, task_id)
         try:
             body = json.loads(record.get('body'))
-            status, report, reason = analyze(body, task_event_handler)
+            status, report, reason, console_output = analyze(body, task_event_handler)
             # TODO: update task status to DynamoDB with report URL
             # TODO: save failed reason if status is failed
             db.update_item(
                 key={'task_id': task_id},
                 update_expression='SET task_status = :status, '
                                   'report_url = :report, '
-                                  'reason = :reason',
+                                  'reason = :reason, '
+                                  'console_output = :console_output',
+
                 expression_attribute_values={
                     ':status': status,
                     ':report': report,
-                    ':reason': reason},
+                    ':reason': reason,
+                    ':console_output': console_output,
+                },
             )
             pass
         except Exception as e:
@@ -251,6 +262,7 @@ def status_checker(event, context):
                 "repo_name": task.get('repo_name'),
                 "type": task.get('analysis_type'),
                 "reason": task.get('reason'),
+                "console_output": task.get('console_output'),
             }),
         }
 
