@@ -170,8 +170,8 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
     finally:
         analyzer.handle_run_end()
 
-    if analyzer.result:
-        report_url = analyzer.result.report
+    if analyzer.jobs_artifact:
+        report_url = ','.join([artifact.result.report for artifact in analyzer.jobs_artifact])
     else:
         report_url = None
         status = 'failed'

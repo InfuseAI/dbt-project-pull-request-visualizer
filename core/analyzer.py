@@ -2,7 +2,7 @@ import os
 import re
 import tempfile
 from abc import ABCMeta, abstractmethod
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 from github import Github
 from github.Auth import Token
@@ -54,6 +54,16 @@ class AnalyzerResult(object):
     def report(self):
         path = self.path if os.path.isabs(self.path) else os.path.abspath(self.path)
         return self.url or path
+
+
+class JobArtifact(object):
+    dbt_project_path: str
+    result: AnalyzerResult | None = None
+    base_result: AnalyzerResult | None = None  # Used for PR
+    head_result: AnalyzerResult | None = None  # Used for PR
+
+    def __init__(self, dbt_project_path: str):
+        self.dbt_project_path = dbt_project_path
 
 
 def _output_result_path(*args):
@@ -170,6 +180,7 @@ class DbtProjectAnalyzer(object):
         if self.dbt_project_path:
             self.dbt_project_paths = [self.dbt_project_path]
 
+        # Jobs
         def job_iterator():
             for job in self.dbt_project_paths:
                 print(f"setup dbt_project_path to {job}")
@@ -183,6 +194,7 @@ class DbtProjectAnalyzer(object):
                 yield callback
 
         self.jobs = job_iterator()
+        self.jobs_artifact: List[JobArtifact] = []
 
         # Control
         self.upload = upload
@@ -191,9 +203,9 @@ class DbtProjectAnalyzer(object):
         self.api_token = api_token
 
         # Analyze Results
-        self.result: AnalyzerResult | None = None
-        self.base_result: AnalyzerResult | None = None  # Used for PR
-        self.head_result: AnalyzerResult | None = None  # Used for PR
+        # self.result: AnalyzerResult | None = None
+        # self.base_result: AnalyzerResult | None = None  # Used for PR
+        # self.head_result: AnalyzerResult | None = None  # Used for PR
 
     def set_event_handler(self, event_handler: AnalyzerEventHandler):
         if event_handler and isinstance(event_handler, AnalyzerEventHandler):
@@ -312,40 +324,48 @@ class DbtProjectAnalyzer(object):
         return report_path, report_url
 
     def summary(self):
-        if self.analyze_type == AnalysisType.PULL_REQUEST:
-            summary, panel_width = self.summary_pull_request()
-        elif self.analyze_type == AnalysisType.REPOSITORY:
-            summary, panel_width = self.summary_repository()
-        else:
-            raise Exception(f"Unknown analyze type: {self.analyze_type}")
+        total = len(self.jobs_artifact)
+        idx = 0
+        for job_artifact in self.jobs_artifact:
+            if len(self.jobs_artifact) > 1:
+                idx += 1
+                console.rule(f"DBT Project '{job_artifact.dbt_project_path}/dbt_project.yml' [{idx}/{total}]")
+            if self.analyze_type == AnalysisType.PULL_REQUEST:
+                summary, panel_width = self.summary_pull_request(job_artifact.base_result,
+                                                                 job_artifact.head_result,
+                                                                 job_artifact.result)
+            elif self.analyze_type == AnalysisType.REPOSITORY:
+                summary, panel_width = self.summary_repository(job_artifact.result)
+            else:
+                raise Exception(f"Unknown analyze type: {self.analyze_type}")
 
-        from rich.markdown import Markdown
-        from rich.panel import Panel
+            from rich.markdown import Markdown
+            from rich.panel import Panel
 
-        panel = Panel(Markdown(summary), width=panel_width, expand=False)
-        console.print(panel)
-        if os.getenv('GITHUB_ACTIONS') == 'true':
-            with open('summary.md', 'w') as f:
-                f.write(summary)
+            panel = Panel(Markdown(summary), width=panel_width, expand=False)
+            console.print(panel)
+            if os.getenv('GITHUB_ACTIONS') == 'true':
+                with open('summary.md', 'w') as f:
+                    f.write(summary)
 
-    def summary_repository(self):
+    def summary_repository(self, result: AnalyzerResult):
         # Repo summary
-        panel_width = len(self.result.report) + 8
+        panel_width = len(result.report) + 8
         content = f'''
 # Dbt Project '{self.repository.full_name}' Repository Summary
 - Repo URL: {self.repository.html_url}
 
 ## Default Branch - {self.repository.default_branch}
-- Report: {self.result.report}
+- Report: {result.report}
 '''
 
         return content, panel_width
 
-    def summary_pull_request(self):
+    def summary_pull_request(self, base, head, compare):
         # PR summary
-        base_report = self.base_result.report
-        head_report = self.head_result.report
-        compare_report = self.result.report
+        base_report = base.report
+        head_report = head.report
+        compare_report = compare.report
         panel_width = max(len(base_report), len(head_report), len(compare_report)) + 8
         content = f'''
 # Dbt Project '{self.repository.full_name}' Pull Request #{self.pull_request.number} Summary
@@ -355,7 +375,7 @@ class DbtProjectAnalyzer(object):
 - PR Status: {self.pull_request.state}
 
 ## Pull Request - {self.pull_request.base.ref} <- {self.pull_request.head.ref} #{self.pull_request.number}
-- Compare Report: {self.result.report}
+- Compare Report: {compare_report}
 
 ### Base Branch - {self.pull_request.base.ref} {self.pull_request.base.sha[0:7]}
 - Report: {base_report}
@@ -387,12 +407,15 @@ class DbtProjectAnalyzer(object):
             raise Exception(f"Unknown analyze type: {self.analyze_type}")
 
     def analyze_repository(self):
+        artifact = JobArtifact(os.path.relpath(self.dbt_project_path, self.project_path))
         branch = self.repository.default_branch
         self.event_handler.handle_run_progress(f"Process Default Branch: '{branch}'", progress=10)
         report_path, report_url = self.generate_piperider_report(branch)
-        self.result = AnalyzerResult(branch, report_path, report_url)
+        artifact.result = AnalyzerResult(branch, report_path, report_url)
+        self.jobs_artifact.append(artifact)
 
     def analyze_pull_request(self):
+        artifact = JobArtifact(os.path.relpath(self.dbt_project_path, self.project_path))
         base_branch = self.pull_request.base.ref
         base_sha = self.pull_request.base.sha
         head_branch = self.pull_request.head.ref
@@ -406,7 +429,7 @@ class DbtProjectAnalyzer(object):
             'PIPERIDER_GIT_SHA': base_sha,
         }):
             report_path, report_url = self.generate_piperider_report(base_sha)
-            self.base_result = AnalyzerResult(base_branch, report_path, report_url)
+            artifact.base_result = AnalyzerResult(base_branch, report_path, report_url)
 
         self.event_handler.handle_run_progress(f"Process Head Branch: '{head_branch}' {head_sha[0:7]}", progress=60)
         with EnvContext({
@@ -414,7 +437,7 @@ class DbtProjectAnalyzer(object):
             'PIPERIDER_GIT_SHA': head_sha,
         }):
             report_path, report_url = self.generate_piperider_report(head_sha)
-            self.head_result = AnalyzerResult(head_branch, report_path, report_url)
+            artifact.head_result = AnalyzerResult(head_branch, report_path, report_url)
 
         self.event_handler.handle_run_progress(f"Compare '{base_branch}'...'{head_branch}'", progress=90)
         with EnvContext({
@@ -423,7 +446,8 @@ class DbtProjectAnalyzer(object):
             'GITHUB_PR_TITLE': self.pull_request.title
         }):
             report_path, report_url = self.compare_piperider_reports()
-            self.result = AnalyzerResult(f'{head_branch}_vs_{base_branch}', report_path, report_url)
+            artifact.result = AnalyzerResult(f'{head_branch}_vs_{base_branch}', report_path, report_url)
+        self.jobs_artifact.append(artifact)
 
     def ping(self):
         return "pong 🏓 🏓 🏓 \n Github URL: " + self.url
