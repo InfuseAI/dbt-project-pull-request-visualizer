@@ -14,7 +14,7 @@ def find_dbt_projects(project_path: str):
         if dbt_project_file in files:
             dbt_projects.append(root)
 
-    return dbt_projects
+    return sorted(dbt_projects)
 
 
 def patch_dbt_profiles(dbt_project_dir: str):

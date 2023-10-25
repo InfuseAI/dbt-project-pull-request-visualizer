@@ -14,7 +14,8 @@ from core.utils import RunCommandException
 @click.option('--upload-token', default=None, help='PipeRider Cloud API Token', required=False)
 @click.option('--share/--no-share', default=False, help='Share the report to PipeRider Cloud', required=False)
 @click.option('--debug/--no-debug', default=False, help='Enable debug mode', required=False)
-@click.option('--dbt-project-dir', default=None, help='Which directory to look in for the dbt_project.yml file', required=False)
+@click.option('--dbt-project-dir', default=None, help='Which directory to look in for the dbt_project.yml file',
+              required=False)
 @click.pass_context
 def cli(ctx: click.Context, github_url: str, **kwargs):
     upload = kwargs.get('upload', False)
@@ -37,8 +38,9 @@ def cli(ctx: click.Context, github_url: str, **kwargs):
                                       project_name=upload_project,
                                       api_token=upload_token)
         analyzer.pre_exec()
-        while not analyzer.done():
-            analyzer.exec()
+        for job_func in analyzer.jobs:
+            job_func()
+
         analyzer.summary()
     except RunCommandException as e:
         click.echo(f'Failed to exec the project: {e.msg}')

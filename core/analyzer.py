@@ -66,6 +66,7 @@ def _output_result_path(*args):
 
 class AnalyzerEventHandler(metaclass=ABCMeta):
     progress: int = 0
+    current_job: Optional[str] = None
 
     @abstractmethod
     def handle_run_start(self):
@@ -100,6 +101,31 @@ class DefaultEventHandler(AnalyzerEventHandler):
 
     def handle_run_error(self, error):
         console.rule(error, style='bold red')
+
+
+class TaskDecoratedEventHandler(AnalyzerEventHandler):
+
+    def __init__(self, handler: AnalyzerEventHandler, dbt_project_paths: List[str]):
+        self.handler = handler
+        self.dbt_project_paths = dbt_project_paths
+
+    def handle_run_start(self):
+        self.handler.handle_run_start()
+
+    def handle_run_end(self):
+        self.handler.handle_run_end()
+
+    def handle_run_progress(self, msg, progress: int = None):
+        if self.current_job and self.current_job in self.dbt_project_paths:
+            current = 1 + self.dbt_project_paths.index(self.current_job)
+            total = len(self.dbt_project_paths)
+            task_progress_msg = f"{msg} [{current}/{total}]"
+            self.handler.handle_run_progress(task_progress_msg, progress)
+        else:
+            self.handler.handle_run_progress(msg, progress)
+
+    def handle_run_error(self, error):
+        self.handle_run_error(error)
 
 
 class DbtProjectAnalyzer(object):
@@ -143,6 +169,20 @@ class DbtProjectAnalyzer(object):
         self.dbt_project_paths: List[str] = []
         if self.dbt_project_path:
             self.dbt_project_paths = [self.dbt_project_path]
+
+        def job_iterator():
+            for job in self.dbt_project_paths:
+                print(f"setup dbt_project_path to {job}")
+                self.dbt_project_path = job
+                self.event_handler.current_job = job
+
+                def callback():
+                    self.exec()
+                    return
+
+                yield callback
+
+        self.jobs = job_iterator()
 
         # Control
         self.upload = upload
@@ -328,13 +368,15 @@ class DbtProjectAnalyzer(object):
     def pre_exec(self):
         if self.load_github_url() is False:
             raise Exception(f"Failed to load github url: {self.url}")
+        if len(self.dbt_project_paths) > 1:
+            self.event_handler = TaskDecoratedEventHandler(self.event_handler, self.dbt_project_paths)
 
     def exec(self):
         if not self.dbt_project_paths:
             return
 
-        # Get next job
-        self.dbt_project_path = self.dbt_project_paths.pop()
+        if not self.dbt_project_path:
+            raise Exception("Please setup dbt_project_path first.")
 
         # Analyze GitHub URL
         if self.analyze_type == AnalysisType.PULL_REQUEST:

@@ -154,8 +154,8 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
         # load github project and checking how many dbt-projects
         analyzer.pre_exec()
 
-        while not analyzer.done():
-            analyzer.exec()
+        for job_func in analyzer.jobs:
+            job_func()
 
         status = 'completed'
     except BaseException as e:
