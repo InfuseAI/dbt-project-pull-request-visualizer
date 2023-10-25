@@ -2,7 +2,7 @@ import os
 import re
 import tempfile
 from abc import ABCMeta, abstractmethod
-from typing import Tuple
+from typing import List, Optional, Tuple, Union
 
 from github import Github
 from github.Auth import Token
@@ -10,7 +10,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 import core.config
-from core.dbt import dbt_deps, dbt_parse, find_dbt_project, patch_dbt_profiles
+from core.dbt import dbt_deps, dbt_parse, find_dbt_projects, patch_dbt_profiles
 from core.piperider import piperider_run, piperider_compare_reports
 from core.utils import clone_github_repo, console, AnalysisType, parse_github_url
 
@@ -139,7 +139,10 @@ class DbtProjectAnalyzer(object):
         self.project_path = None
 
         # Dbt
-        self.dbt_project_path = dbt_project_path
+        self.dbt_project_path: Optional[str] = dbt_project_path
+        self.dbt_project_paths: List[str] = []
+        if self.dbt_project_path:
+            self.dbt_project_paths = [self.dbt_project_path]
 
         # Control
         self.upload = upload
@@ -184,9 +187,9 @@ class DbtProjectAnalyzer(object):
         self.event_handler.handle_run_progress('Cloning Git Repository', progress=1)
         self.git_repo, self.project_path = clone_github_repo(self.repository, self.auth)
         if self.dbt_project_path is None:
-            self.dbt_project_path = find_dbt_project(self.project_path)
+            self.dbt_project_paths = find_dbt_projects(self.project_path)
         else:
-            self.dbt_project_path = os.path.join(self.project_path, self.dbt_project_path)
+            self.dbt_project_paths = [os.path.join(self.project_path, self.dbt_project_path)]
 
         if self.analyze_type == AnalysisType.PULL_REQUEST:
             self.base_branch = self.pull_request.base.ref
@@ -322,10 +325,16 @@ class DbtProjectAnalyzer(object):
 '''
         return content, panel_width
 
-    def exec(self):
-        self.event_handler.handle_run_start()
+    def pre_exec(self):
         if self.load_github_url() is False:
             raise Exception(f"Failed to load github url: {self.url}")
+
+    def exec(self):
+        if not self.dbt_project_paths:
+            return
+
+        # Get next job
+        self.dbt_project_path = self.dbt_project_paths.pop()
 
         # Analyze GitHub URL
         if self.analyze_type == AnalysisType.PULL_REQUEST:
@@ -334,8 +343,6 @@ class DbtProjectAnalyzer(object):
             self.analyze_repository()
         else:
             raise Exception(f"Unknown analyze type: {self.analyze_type}")
-
-        self.event_handler.handle_run_end()
 
     def analyze_repository(self):
         branch = self.repository.default_branch
@@ -378,3 +385,14 @@ class DbtProjectAnalyzer(object):
 
     def ping(self):
         return "pong 🏓 🏓 🏓 \n Github URL: " + self.url
+
+    def handle_run_start(self):
+        if self.event_handler:
+            self.event_handler.handle_run_start()
+
+    def handle_run_end(self):
+        if self.event_handler:
+            self.event_handler.handle_run_end()
+
+    def done(self):
+        return self.dbt_project_paths == []
