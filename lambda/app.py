@@ -149,7 +149,14 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
     reason = ''
     console_output = None
     try:
-        analyzer.exec()
+        analyzer.handle_run_start()
+
+        # load github project and checking how many dbt-projects
+        analyzer.pre_exec()
+
+        for job_func in analyzer.jobs:
+            job_func()
+
         status = 'completed'
     except BaseException as e:
         if isinstance(e, RunCommandException):
@@ -160,9 +167,11 @@ def analyze(payload, event_handler: AnalyzerEventHandler = None):
             print(f'Error: {str(e)}')
             reason = str(e)
         status = 'failed'
+    finally:
+        analyzer.handle_run_end()
 
-    if analyzer.result:
-        report_url = analyzer.result.report
+    if analyzer.jobs_artifact:
+        report_url = ','.join([artifact.result.report for artifact in analyzer.jobs_artifact])
     else:
         report_url = None
         status = 'failed'

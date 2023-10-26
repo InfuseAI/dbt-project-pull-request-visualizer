@@ -5,18 +5,16 @@ from ruamel import yaml
 from core.utils import console, run_command, RunCommandException
 
 
-def find_dbt_project(project_path: str):
+def find_dbt_projects(project_path: str):
     dbt_project_file = 'dbt_project.yml'
+    dbt_projects = []
 
     dbt_project_dir = None
     for root, directory, files in os.walk(project_path):
         if dbt_project_file in files:
-            dbt_project_dir = root
+            dbt_projects.append(root)
 
-    if dbt_project_dir is None:
-        return None
-
-    return dbt_project_dir
+    return sorted(dbt_projects)
 
 
 def patch_dbt_profiles(dbt_project_dir: str):
